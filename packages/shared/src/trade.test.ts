@@ -5,34 +5,46 @@ const openTrade = {
   id: '3f1c2b9e-8a4d-4c6e-9b1a-2d5e7f8a9b0c',
   symbol: ' aapl ',
   side: 'long',
-  quantity: 10,
-  entryPrice: 187.5,
+  quantity: '10',
+  entryPrice: '187.50',
   openedAt: '2026-11-17T09:30:00Z',
 };
 
 describe('TradeSchema', () => {
-  it('parses an open trade and normalises the symbol', () => {
+  it('parses an open trade, normalises the symbol and keeps prices as strings', () => {
     const trade = TradeSchema.parse(openTrade);
     expect(trade.symbol).toBe('AAPL');
+    expect(trade.entryPrice).toBe('187.50');
     expect(trade.exitPrice).toBeUndefined();
   });
 
   it('parses a closed trade', () => {
     const result = TradeSchema.safeParse({
       ...openTrade,
-      exitPrice: 190,
+      exitPrice: '190.00',
       closedAt: '2026-11-17T15:45:00Z',
     });
     expect(result.success).toBe(true);
   });
 
-  it('rejects a non-positive quantity', () => {
-    const result = TradeSchema.safeParse({ ...openTrade, quantity: 0 });
+  it('accepts a fractional quantity', () => {
+    const result = TradeSchema.safeParse({ ...openTrade, quantity: '0.25' });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a zero quantity', () => {
+    const result = TradeSchema.safeParse({ ...openTrade, quantity: '0' });
     expect(result.success).toBe(false);
   });
 
+  it('rejects a price sent as a float', () => {
+    const result = TradeSchema.safeParse({ ...openTrade, entryPrice: 187.5 });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(['entryPrice']);
+  });
+
   it('rejects an exit price without a close time', () => {
-    const result = TradeSchema.safeParse({ ...openTrade, exitPrice: 190 });
+    const result = TradeSchema.safeParse({ ...openTrade, exitPrice: '190.00' });
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.path).toEqual(['closedAt']);
   });

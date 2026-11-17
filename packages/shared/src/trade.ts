@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PositiveDecimalStringSchema } from './decimal.js';
 
 export const TradeSideSchema = z.enum(['long', 'short']);
 
@@ -7,9 +8,9 @@ export const TradeSchema = z
     id: z.uuid(),
     symbol: z.string().trim().min(1).max(12).toUpperCase(),
     side: TradeSideSchema,
-    quantity: z.number().positive(),
-    entryPrice: z.number().positive(),
-    exitPrice: z.number().positive().optional(),
+    quantity: PositiveDecimalStringSchema,
+    entryPrice: PositiveDecimalStringSchema,
+    exitPrice: PositiveDecimalStringSchema.optional(),
     openedAt: z.iso.datetime(),
     closedAt: z.iso.datetime().optional(),
     notes: z.string().max(5000).optional(),
