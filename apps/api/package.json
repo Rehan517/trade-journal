@@ -1,0 +1,17 @@
+{
+  "name": "@trade-journal/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^22.19.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.1.0"
+  }
+}
