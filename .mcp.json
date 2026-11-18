@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "aws-docs": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["awslabs.aws-documentation-mcp-server@latest"],
+      "env": {}
+    },
+    "aws-iac": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["awslabs.aws-iac-mcp-server@latest"],
+      "env": {}
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": ["--silent", "dlx", "@playwright/mcp@latest"],
+      "env": {}
+    }
+  }
+}
