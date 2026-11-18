@@ -16,5 +16,3 @@ export const handler = async (
     }),
   };
 };
-
-const x: number = "oops";
