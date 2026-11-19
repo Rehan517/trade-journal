@@ -42,3 +42,22 @@ export {
   tradeOutcome,
 } from './trade-math.js';
 export type { TradeMathInput, TradeOutcome } from './trade-math.js';
+export {
+  CreateTradeRequestSchema,
+  ErrorBodySchema,
+  ListTradesQuerySchema,
+  ListTradesResponseSchema,
+  TradeMetricsSchema,
+  TradeViewSchema,
+  computeTradeMetrics,
+  toTradeView,
+} from './trade-api.js';
+export type {
+  CreateTradeRequest,
+  CreateTradeRequestInput,
+  ErrorBody,
+  ListTradesQuery,
+  ListTradesResponse,
+  TradeMetrics,
+  TradeView,
+} from './trade-api.js';

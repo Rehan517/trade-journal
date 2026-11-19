@@ -1,6 +1,6 @@
 # Spec: trades
 
-Status: #5 approved; #6 API draft, awaiting review · Issues: #5, #6 (later: #7, #8, #9,
+Status: #5 and #6 approved · Issues: #5, #6 (later: #7, #8, #9,
 #10) · Last updated: 2026-11-19
 
 ## Summary
@@ -15,8 +15,8 @@ settings) here and don't change the earlier sections without updating them.
 
 | Issue | Section             | Status  |
 | ----- | ------------------- | ------- |
-| #5    | Fields, Maths       | This PR |
-| #6    | API                 | Draft   |
+| #5    | Fields, Maths       | Done    |
+| #6    | API                 | This PR |
 | #7    | Quick-entry form    | Later   |
 | #8    | Trade list          | Later   |
 | #9    | Edit, close, delete | Later   |
@@ -227,8 +227,9 @@ authorizer. Handlers live in `apps/api`, request and response schemas in
 
 ### Decisions (#6)
 
-1. **One Lambda per route.** Each role is granted only its one action on the
-   Trades table (the list role also on its index). No `grantReadData` or
+1. **One Lambda per route.** Each role is granted only its one action: create
+   and get on the Trades table ARN, list on the `byOpenedAt` index ARN only
+   (a Query on an index is authorized against the index). No `grantReadData` or
    `grantReadWriteData`, because those add `Scan`, `BatchGetItem` and others.
 2. **The caller is the Cognito `sub` from an access token.** The same check
    as `GET /me` (`token_use` must be `access`, `sub` a non-empty string),
@@ -243,6 +244,11 @@ authorizer. Handlers live in `apps/api`, request and response schemas in
    digits, then `#<id>`, e.g. `2026-11-19T01:30:00.000000000Z#<uuid>`.
    Padding makes string order match time order (`"…00Z"` sorts after
    `"…00.5Z"` otherwise).
+   - Digits past the 9th (nanoseconds) are dropped from the key, so two
+     trades that differ only there sort by `id`. Nobody logs trades that
+     precisely.
+   - An LSI caps each user's data at 10 GB. Far more than a personal journal
+     needs.
    - An LSI, not a GSI, so the list is strongly consistent: a trade shows in
      the list straight after it's created. When #9 edits `openedAt`, the
      index follows the item.
@@ -362,8 +368,8 @@ All responses have `content-type: application/json` and
   uses `byOpenedAt` with `ScanIndexForward: false`, and decimals are stored
   as strings.
 - **Infra** (`infra/test/api.test.ts`): the three routes use the JWT
-  authorizer; each role has exactly its one DynamoDB action on the table (and
-  the index for list) and nothing else; `/health` and `/me` roles still have
+  authorizer; each role has exactly its one DynamoDB action (create and get
+  on the table, list on the index only) and nothing else; `/health` and `/me` roles still have
   no policies; the table has the `byOpenedAt` LSI; CORS allows `POST`.
 
 ### Out of scope for #6

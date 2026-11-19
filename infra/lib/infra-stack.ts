@@ -33,11 +33,19 @@ export class InfraStack extends cdk.Stack {
       );
     }
 
-    new dynamodb.TableV2(this, 'Trades', {
+    const tradesTable = new dynamodb.TableV2(this, 'Trades', {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
       removalPolicy: cdk.RemovalPolicy.DESTROY, // dev only
+      // An LSI can only be added at table creation; strongly consistent list.
+      localSecondaryIndexes: [
+        {
+          indexName: 'byOpenedAt',
+          sortKey: { name: 'openedAtKey', type: dynamodb.AttributeType.STRING },
+          projectionType: dynamodb.ProjectionType.ALL,
+        },
+      ],
     });
 
     const web = new WebHosting(this, 'Web');
@@ -48,6 +56,7 @@ export class InfraStack extends cdk.Stack {
       webUrl: web.url,
       userPool: auth.userPool,
       userPoolClient: auth.userPoolClient,
+      table: tradesTable,
     });
 
     // Created last so later constructs can add sources (config.json).
