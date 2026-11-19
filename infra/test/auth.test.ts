@@ -188,7 +188,7 @@ describe('config.json deployment', () => {
     );
   });
 
-  test('config.json has exactly the four keys, in the right places', () => {
+  test('config.json has exactly the five keys, in the right places', () => {
     const markers = (
       deployment.Properties.SourceMarkers as Record<string, unknown>[]
     ).find((m) => Object.keys(m).length > 0)!;
@@ -211,6 +211,7 @@ describe('config.json deployment', () => {
     const config = JSON.parse(body) as Record<string, string>;
 
     expect(Object.keys(config).sort()).toEqual([
+      'apiUrl',
       'authDomain',
       'region',
       'userPoolClientId',

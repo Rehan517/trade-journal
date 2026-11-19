@@ -103,7 +103,9 @@ touched.
 8. **The token sent to the API.** The app sends the access token as
    `Authorization: Bearer <token>`. The authorizer is `HttpUserPoolAuthorizer`
    with the app client as audience. Access tokens have no `aud` claim, so API
-   Gateway checks their `client_id` claim against the audience instead.
+   Gateway checks their `client_id` claim against the audience instead. ID
+   tokens also pass the authorizer (their `aud` is the client ID), so handlers
+   also require `token_use` to be `access`.
 9. **Creating the single user.** After PR 2 deploys, I run this once myself.
    An agent never runs it.
 

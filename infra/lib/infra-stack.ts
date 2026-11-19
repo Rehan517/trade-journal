@@ -6,6 +6,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import { WebHosting } from './web-hosting';
 import { Auth } from './auth';
+import { Api } from './api';
 
 export interface InfraStackProps extends cdk.StackProps {
   /** Built web app. Defaults to apps/web/dist in the repo root. */
@@ -43,6 +44,12 @@ export class InfraStack extends cdk.Stack {
 
     const auth = new Auth(this, 'Auth', { webUrl: web.url });
 
+    const api = new Api(this, 'Api', {
+      webUrl: web.url,
+      userPool: auth.userPool,
+      userPoolClient: auth.userPoolClient,
+    });
+
     // Created last so later constructs can add sources (config.json).
     web.deploySite({
       webDistPath,
@@ -52,6 +59,7 @@ export class InfraStack extends cdk.Stack {
           userPoolId: auth.userPool.userPoolId,
           userPoolClientId: auth.userPoolClient.userPoolClientId,
           authDomain: auth.authDomain,
+          apiUrl: api.apiUrl,
         }),
       ],
     });
@@ -63,5 +71,6 @@ export class InfraStack extends cdk.Stack {
       value: auth.userPoolClient.userPoolClientId,
     });
     new cdk.CfnOutput(this, 'AuthDomain', { value: auth.authDomain });
+    new cdk.CfnOutput(this, 'ApiUrl', { value: api.apiUrl });
   }
 }

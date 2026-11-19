@@ -198,6 +198,10 @@ importers:
         version: 8.72.2(eslint@10.15.0(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
 
   apps/api:
+    dependencies:
+      '@trade-journal/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
     devDependencies:
       '@types/aws-lambda':
         specifier: ^8.10.164
@@ -210,10 +214,13 @@ importers:
         version: 6.0.3
       vitest:
         specifier: ^5.1.0
-        version: 5.1.0(@types/node@22.20.5)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15))
+        version: 5.1.0(@types/node@22.20.5)(jsdom@26.1.0(supports-color@8.1.1))(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15))
 
   apps/web:
     dependencies:
+      '@trade-journal/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       oidc-client-ts:
         specifier: ^3.5.0
         version: 3.5.0
@@ -303,6 +310,9 @@ importers:
       aws-cdk:
         specifier: 2.1148.1
         version: 2.1148.1
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       jest:
         specifier: ^30
         version: 30.5.2(@types/node@24.19.2)(supports-color@8.1.1)
@@ -5675,7 +5685,7 @@ snapshots:
       fsevents: 2.3.3
       tsx: 4.23.15
 
-  vitest@5.1.0(@types/node@22.20.5)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)):
+  vitest@5.1.0(@types/node@22.20.5)(jsdom@26.1.0(supports-color@8.1.1))(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/mocker': 5.1.0(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15))
@@ -5693,6 +5703,7 @@ snapshots:
       why-is-node-running: 3.2.1
     optionalDependencies:
       '@types/node': 22.20.5
+      jsdom: 26.1.0(supports-color@8.1.1)
     transitivePeerDependencies:
       - msw
 

@@ -18,6 +18,12 @@ export const ConfigSchema = z
         /^https:\/\/[a-z0-9-]+\.auth\.[a-z0-9-]+\.amazoncognito\.com$/,
         'must be a Cognito domain URL with no trailing slash',
       ),
+    apiUrl: z
+      .string()
+      .regex(
+        /^https:\/\/[a-z0-9]+\.execute-api\.[a-z0-9-]+\.amazonaws\.com$/,
+        'must be an API Gateway URL with no trailing slash',
+      ),
   })
   .refine((c) => c.userPoolId.startsWith(`${c.region}_`), {
     message: 'userPoolId must be in the configured region',
