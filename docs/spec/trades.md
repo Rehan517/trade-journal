@@ -507,8 +507,10 @@ Stop | Target, then Notes across both. Save button under the ticket.
 **Phone (< 640px).** The same two-column pairs, the ticket full width with
 a 12px desk margin, Net P&L at `--t-figure-s`, and Save trade in a bar
 pinned to the bottom, inside thumb reach. The bar never covers the focused
-field (the page gets bottom padding equal to the bar). Below 360px, Type
-and Side each take a full row so the toggle labels don't wrap.
+field (the page gets bottom padding equal to the bar). Entry time and Exit
+time each take a full row, because a `datetime-local` value is cut off in
+half the width. Below 360px, Type and Side each take a full row too, so the
+toggle labels don't wrap.
 
 ```
 PHONE
@@ -523,9 +525,11 @@ PHONE
 │ Qty          │ Entry         │
 ├──────────────┼───────────────┤
 │ Exit         │ Fees          │
-├──────────────┼───────────────┤
-│ Entry time   │ Exit time     │
-├──────────────┼───────────────┤
+├──────────────┴───────────────┤
+│ Entry time                   │
+├──────────────────────────────┤
+│ Exit time                    │
+├──────────────┬───────────────┤
 │ Stop         │ Target        │
 ├──────────────┴───────────────┤
 │ Notes                        │
@@ -544,11 +548,11 @@ PHONE
 | Qty         | `quantity`       | `inputmode="decimal"`                                                                   | Yes              |
 | Entry       | `entryPrice`     | `inputmode="decimal"`, placeholder `0.00`                                               | Yes              |
 | Exit        | `exitPrice`      | `inputmode="decimal"`, placeholder `0.00`                                               | With exit time   |
+| Fees        | `fees`           | `inputmode="decimal"`, placeholder `0.00`                                               | No (empty → `0`) |
 | Entry time  | `openedAt`       | `datetime-local`, defaults to now                                                       | Yes              |
 | Exit time   | `closedAt`       | `datetime-local`. Filled with now when an exit price is typed and it's blank            | With exit price  |
 | Stop        | `plannedStop`    | `inputmode="decimal"`                                                                   | No               |
 | Target      | `plannedTarget`  | `inputmode="decimal"`                                                                   | No               |
-| Fees        | `fees`           | `inputmode="decimal"`, placeholder `0.00`                                               | No (empty → `0`) |
 | Notes       | `notes`          | `textarea`, max 5000                                                                    | No               |
 
 - Every single-line input has `enterkeyhint="next"`, so the phone keyboard
@@ -681,7 +685,7 @@ is really tested (and covers a zone with DST).
 - **Keyboard**: Enter in a single-line field moves focus to the next field
   and sends nothing; Enter in Notes doesn't save; Ctrl+Enter and ⌘+Enter
   save from any field, Notes included; a second Ctrl+Enter while saving
-  sends nothing. Tab order matches the field order in the table above.
+  sends nothing. Tab order matches the field table above (the layout's reading order).
 - **Accessibility**: every input is found by its label, and an errored input
   has `aria-invalid` and is described by its message.
 
