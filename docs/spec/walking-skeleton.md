@@ -290,9 +290,14 @@ the distribution domain.
   - Account recovery by email only. Default password policy. MFA off for
     now; it can be turned on later without replacing the pool.
   - `featurePlan: FeaturePlan.ESSENTIALS`, `RemovalPolicy.RETAIN`.
+  - `signInCaseSensitive: false`. This can't be changed without replacing
+    the pool (decision 10), so it's set from the start.
 - Domain: the prefix domain from decision 5, using managed login.
 - App client:
   - No secret. OAuth authorization code grant only, no implicit grant.
+  - Auth flows exactly SRP and refresh (`authFlows: { userSrp: true }`).
+    Managed login uses the client's enabled flows, so SRP stays; setting the
+    list explicitly keeps Cognito's default `ALLOW_CUSTOM_AUTH` off.
   - Scopes `openid` and `email`. Cognito is the only identity provider.
   - Callback URLs and logout URLs are exactly `https://<distribution domain>/`
     and `http://localhost:5173/`.

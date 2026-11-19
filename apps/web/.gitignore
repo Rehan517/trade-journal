@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local dev config (copied from <WebUrl>/config.json)
+public/config.json
