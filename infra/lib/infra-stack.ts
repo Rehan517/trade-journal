@@ -33,7 +33,12 @@ export class InfraStack extends cdk.Stack {
       );
     }
 
-    const tradesTable = new dynamodb.TableV2(this, 'Trades', {
+    // The id is 'TradesTable', not 'Trades', on purpose. An LSI can only be
+    // added when a table is created, and CloudFormation updates a GlobalTable
+    // in place (DynamoDB rejects that). A new logical ID makes it create a new
+    // table and delete the old one. Renaming again replaces the table and
+    // deletes its data.
+    const tradesTable = new dynamodb.TableV2(this, 'TradesTable', {
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
