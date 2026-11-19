@@ -256,6 +256,11 @@ authorizer. Handlers live in `apps/api`, request and response schemas in
      **replaces the dev Trades table**. It holds no trades yet (this is the
      first route that writes), so nothing is lost. Adding it later would lose
      data.
+     - Adding the index alone doesn't replace it: CloudFormation updates a
+       `GlobalTable` in place, and DynamoDB rejects the new `openedAtKey`
+       attribute (the first deploy failed and rolled back). The table's
+       construct ID is now `TradesTable` (was `Trades`). The new logical ID
+       makes CloudFormation create a new table, then delete the old one.
    - Putting `openedAt` in `sk` instead would mean `GET /trades/{id}` can't
      find a trade by ID alone.
 6. **The server sets `id`, `createdAt` and `updatedAt`.** `id` is
