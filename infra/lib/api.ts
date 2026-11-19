@@ -5,6 +5,8 @@ import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -18,9 +20,14 @@ export interface ApiProps {
   readonly webUrl: string;
   readonly userPool: cognito.IUserPool;
   readonly userPoolClient: cognito.IUserPoolClient;
+  /** Trades table; has the `byOpenedAt` local secondary index. */
+  readonly table: dynamodb.ITableV2;
 }
 
-/** HTTP API with a Cognito JWT authorizer by default and two Lambda routes. */
+/**
+ * HTTP API with a Cognito JWT authorizer by default: public `/health`, `/me`,
+ * and the trades routes, one Lambda each.
+ */
 export class Api extends Construct {
   public readonly httpApi: apigwv2.HttpApi;
   /** `https://<id>.execute-api.<region>.amazonaws.com`, no trailing slash. */
@@ -31,9 +38,14 @@ export class Api extends Construct {
 
     // Each function gets an explicit log group. With the
     // `useCdkManagedLogGroup` flag, CDK would otherwise create its own too.
-    const makeFunction = (name: string, file: string) =>
+    const makeFunction = (
+      name: string,
+      file: string,
+      environment?: Record<string, string>,
+    ) =>
       new nodejs.NodejsFunction(this, name, {
         entry: path.join(HANDLERS_DIR, file),
+        environment,
         handler: 'handler',
         runtime: lambda.Runtime.NODEJS_22_X,
         architecture: lambda.Architecture.ARM_64,
@@ -55,6 +67,45 @@ export class Api extends Construct {
     const healthFunction = makeFunction('HealthFunction', 'health.ts');
     const meFunction = makeFunction('MeFunction', 'me.ts');
 
+    const tableEnv = { TABLE_NAME: props.table.tableName };
+    const createTradeFunction = makeFunction(
+      'CreateTradeFunction',
+      'create-trade.ts',
+      tableEnv,
+    );
+    const getTradeFunction = makeFunction(
+      'GetTradeFunction',
+      'get-trade.ts',
+      tableEnv,
+    );
+    const listTradesFunction = makeFunction(
+      'ListTradesFunction',
+      'list-trades.ts',
+      tableEnv,
+    );
+
+    // One action each, on exactly one resource. No grant* helpers: they add
+    // Scan, BatchGetItem and more. Query on an index is authorized against
+    // the index ARN, so the list role gets no table-level permission.
+    createTradeFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:PutItem'],
+        resources: [props.table.tableArn],
+      }),
+    );
+    getTradeFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem'],
+        resources: [props.table.tableArn],
+      }),
+    );
+    listTradesFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:Query'],
+        resources: [`${props.table.tableArn}/index/byOpenedAt`],
+      }),
+    );
+
     this.httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
       apiName: 'trade-journal-dev',
       createDefaultStage: false,
@@ -63,6 +114,7 @@ export class Api extends Construct {
         allowMethods: [
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.OPTIONS,
+          apigwv2.CorsHttpMethod.POST,
         ],
         allowHeaders: ['authorization', 'content-type'],
         maxAge: cdk.Duration.days(1),
@@ -97,6 +149,33 @@ export class Api extends Construct {
       integration: new integrations.HttpLambdaIntegration(
         'MeIntegration',
         meFunction,
+      ),
+    });
+
+    this.httpApi.addRoutes({
+      path: '/trades',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new integrations.HttpLambdaIntegration(
+        'CreateTradeIntegration',
+        createTradeFunction,
+      ),
+    });
+
+    this.httpApi.addRoutes({
+      path: '/trades/{id}',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration(
+        'GetTradeIntegration',
+        getTradeFunction,
+      ),
+    });
+
+    this.httpApi.addRoutes({
+      path: '/trades',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration(
+        'ListTradesIntegration',
+        listTradesFunction,
       ),
     });
 

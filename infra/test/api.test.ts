@@ -37,17 +37,42 @@ const [distributionId] = first('AWS::CloudFront::Distribution');
 const routes = all('AWS::ApiGatewayV2::Route');
 const routeFor = (key: string) =>
   routes.find(([, r]) => r.Properties.RouteKey === key);
+const [tableId] = first('AWS::DynamoDB::GlobalTable');
 const functions = all('AWS::Lambda::Function').filter(([id]) =>
-  /^Api(Health|Me)Function[0-9A-F]{8}$/.test(id),
+  /^Api(Health|Me|CreateTrade|GetTrade|ListTrades)Function[0-9A-F]{8}$/.test(
+    id,
+  ),
 );
+const functionNamed = (name: string) =>
+  functions.find(([id]) => id.startsWith(`Api${name}Function`)) ?? [
+    '<missing>',
+    { Properties: {} },
+  ];
+const roleIdOf = (name: string) =>
+  (functionNamed(name)[1].Properties.Role as { 'Fn::GetAtt': string[] })[
+    'Fn::GetAtt'
+  ][0]!;
+/** Statements of every AWS::IAM::Policy attached to the function's role. */
+const statementsOf = (name: string): Record<string, unknown>[] => {
+  const roleId = roleIdOf(name);
+  return all('AWS::IAM::Policy')
+    .filter(([, p]) =>
+      (p.Properties.Roles as { Ref: string }[]).some((r) => r.Ref === roleId),
+    )
+    .flatMap(([, p]) => p.Properties.PolicyDocument.Statement);
+};
+const tableArn = { 'Fn::GetAtt': [tableId, 'Arn'] };
 
-test('stack has exactly one HTTP API, one stage, one authorizer and two routes', () => {
+test('stack has exactly one HTTP API, one stage, one authorizer and five routes', () => {
   expect(all('AWS::ApiGatewayV2::Api')).toHaveLength(1);
   expect(all('AWS::ApiGatewayV2::Stage')).toHaveLength(1);
   expect(all('AWS::ApiGatewayV2::Authorizer')).toHaveLength(1);
   expect(routes.map(([, r]) => r.Properties.RouteKey).sort()).toEqual([
     'GET /health',
     'GET /me',
+    'GET /trades',
+    'GET /trades/{id}',
+    'POST /trades',
   ]);
   expect(api.Properties.ProtocolType).toBe('HTTP');
 });
@@ -72,7 +97,7 @@ describe('CORS', () => {
   });
 
   test('methods, headers and max age', () => {
-    expect([...cors().AllowMethods].sort()).toEqual(['GET', 'OPTIONS']);
+    expect([...cors().AllowMethods].sort()).toEqual(['GET', 'OPTIONS', 'POST']);
     expect([...cors().AllowHeaders].sort()).toEqual([
       'authorization',
       'content-type',
@@ -115,6 +140,17 @@ describe('routes and authorization', () => {
     });
   });
 
+  test.each(['POST /trades', 'GET /trades/{id}', 'GET /trades'])(
+    '%s uses the same JWT authorizer as GET /me',
+    (key) => {
+      const props = routeFor(key)?.[1].Properties;
+      expect(props?.AuthorizationType).toBe('JWT');
+      expect(props?.AuthorizerId).toEqual(
+        routeFor('GET /me')?.[1].Properties.AuthorizerId,
+      );
+    },
+  );
+
   test('GET /health is public', () => {
     const props = routeFor('GET /health')?.[1].Properties;
     expect(props?.AuthorizationType).toBe('NONE');
@@ -137,23 +173,22 @@ describe('$default stage', () => {
 });
 
 describe('Lambda functions', () => {
-  test('there are exactly two handler functions', () => {
-    expect(functions).toHaveLength(2);
+  test('there are exactly five handler functions', () => {
+    expect(functions).toHaveLength(5);
   });
 
-  test('both are arm64 on Node.js 22.x', () => {
+  test('all are arm64 on Node.js 22.x', () => {
     for (const [, f] of functions) {
       expect(f.Properties.Architectures).toEqual(['arm64']);
       expect(f.Properties.Runtime).toBe('nodejs22.x');
     }
   });
 
-  test('roles only have basic execution, and no policies are attached', () => {
-    const roleIds = functions.map(
-      ([, f]) =>
-        (f.Properties.Role as { 'Fn::GetAtt': string[] })['Fn::GetAtt'][0],
+  test('all roles have basic execution and no inline role policies', () => {
+    const roleIds = functions.map(([id]) =>
+      roleIdOf(id.replace(/^Api/, '').replace(/Function[0-9A-F]{8}$/, '')),
     );
-    expect(new Set(roleIds).size).toBe(2);
+    expect(new Set(roleIds).size).toBe(5);
     for (const roleId of roleIds) {
       const role = template.toJSON().Resources[roleId];
       expect(role.Properties.Policies).toBeUndefined();
@@ -162,12 +197,43 @@ describe('Lambda functions', () => {
         'service-role/AWSLambdaBasicExecutionRole',
       );
     }
-    // No AWS::IAM::Policy (inline grant) is attached to either role.
-    for (const [, policy] of all('AWS::IAM::Policy')) {
-      const attached = JSON.stringify(policy.Properties.Roles);
-      for (const roleId of roleIds) {
-        expect(attached).not.toContain(`"${roleId}"`);
-      }
+  });
+
+  test('health and me have no policies at all', () => {
+    expect(statementsOf('Health')).toEqual([]);
+    expect(statementsOf('Me')).toEqual([]);
+  });
+
+  test('CreateTrade can only PutItem on the table', () => {
+    expect(statementsOf('CreateTrade')).toEqual([
+      { Action: 'dynamodb:PutItem', Effect: 'Allow', Resource: tableArn },
+    ]);
+  });
+
+  test('GetTrade can only GetItem on the table', () => {
+    expect(statementsOf('GetTrade')).toEqual([
+      { Action: 'dynamodb:GetItem', Effect: 'Allow', Resource: tableArn },
+    ]);
+  });
+
+  test('ListTrades can only Query the byOpenedAt index', () => {
+    expect(statementsOf('ListTrades')).toEqual([
+      {
+        Action: 'dynamodb:Query',
+        Effect: 'Allow',
+        Resource: { 'Fn::Join': ['', [tableArn, '/index/byOpenedAt']] },
+      },
+    ]);
+  });
+
+  test('trade functions get TABLE_NAME referencing the table', () => {
+    for (const name of ['CreateTrade', 'GetTrade', 'ListTrades']) {
+      expect(functionNamed(name)[1].Properties.Environment.Variables).toEqual({
+        TABLE_NAME: { Ref: tableId },
+      });
+    }
+    for (const name of ['Health', 'Me']) {
+      expect(functionNamed(name)[1].Properties.Environment).toBeUndefined();
     }
   });
 
@@ -175,14 +241,14 @@ describe('Lambda functions', () => {
     const groups = all('AWS::Logs::LogGroup').filter(([id]) =>
       id.startsWith('Api'),
     );
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(5);
     for (const [, g] of groups) {
       expect(g.Properties.RetentionInDays).toBe(30);
     }
     const referenced = functions.map(
       ([, f]) => f.Properties.LoggingConfig?.LogGroup,
     );
-    expect(referenced).toHaveLength(2);
+    expect(referenced).toHaveLength(5);
     expect(referenced).toEqual(
       expect.arrayContaining(groups.map(([id]) => ({ Ref: id }))),
     );
@@ -192,7 +258,7 @@ describe('Lambda functions', () => {
 
   // Bundling is skipped in tests, so the CJS output format itself was checked
   // by hand in cdk.out (module.exports exposes `handler`).
-  test('both use the index.handler entry point', () => {
+  test('all use the index.handler entry point', () => {
     for (const [, f] of functions) {
       expect(f.Properties.Handler).toBe('index.handler');
     }

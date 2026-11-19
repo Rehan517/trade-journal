@@ -257,12 +257,22 @@ describe('InfraStack web hosting', () => {
     template.hasOutput('WebBucketName', { Value: { Ref: bucketId } });
   });
 
-  test('Trades table is unchanged', () => {
+  test('Trades table keys, billing and byOpenedAt LSI', () => {
     template.hasResourceProperties('AWS::DynamoDB::GlobalTable', {
       BillingMode: 'PAY_PER_REQUEST',
       KeySchema: [
         { AttributeName: 'pk', KeyType: 'HASH' },
         { AttributeName: 'sk', KeyType: 'RANGE' },
+      ],
+      LocalSecondaryIndexes: [
+        {
+          IndexName: 'byOpenedAt',
+          KeySchema: [
+            { AttributeName: 'pk', KeyType: 'HASH' },
+            { AttributeName: 'openedAtKey', KeyType: 'RANGE' },
+          ],
+          Projection: { ProjectionType: 'ALL' },
+        },
       ],
     });
   });
