@@ -24,8 +24,13 @@ Two directions were sketched. **A was chosen.**
 ### A: Pit card (chosen)
 
 Trades as printed tickets on a desk. The form is the card. Ruled cells make
-each field a clear, large tap target on a phone, and the double-ruled result
-strip at the bottom shows the net P&L and R while the ticket is filled in.
+each field a clear, large target for a mouse or a thumb, and the
+double-ruled result strip at the bottom shows the net P&L and R while the
+ticket is filled in.
+
+The sketches below were drawn phone first. Logging is now desktop first
+(principle 6, [Layout](#layout)); the phone sketch shows the same ticket at
+its narrowest.
 
 ```
 PHONE  log a ticket
@@ -87,8 +92,11 @@ ticket** (see [Charts](#charts)), but it doesn't set the visual language.
    the hierarchy, so most screens need only one or two sizes.
 5. **Honest numbers don't animate.** P&L never counts up, ticks or pulses.
    It changes the moment the inputs change.
-6. **Phone first for logging, desk first for review.** The ticket is sized
-   for a thumb. Review screens on a laptop add columns, not decoration.
+6. **Desktop first, phone always works.** Trades are mostly logged and
+   reviewed at a desk, so each screen is designed at desktop width first:
+   wide tickets that fit on one screen, filled in from the keyboard alone.
+   Narrower screens get fewer columns of the same cells, never a different
+   screen or missing features. Targets stay thumb-sized at every width.
 
 ## Colour
 
@@ -111,8 +119,8 @@ describe the role, not the hue.
 
 ### Dark: night desk
 
-US sessions can fall late at night, and the phone is often what logs the
-trade, so dark mode is a full theme, not an inversion.
+US sessions can fall late at night, and the journal is often filled in
+after dark, so dark mode is a full theme, not an inversion.
 
 | Token          | Hex       |
 | -------------- | --------- |
@@ -249,16 +257,24 @@ something.
 
 ### Layout
 
-- **Phone (< 640px):** one column. The ticket spans the width with a 12px
-  desk margin. The primary action sits in a bar pinned to the bottom, inside
-  thumb reach.
-- **Tablet and laptop (≥ 640px):** the new-ticket form is one ticket,
-  `max-width: 34rem`, left aligned in the content area. It isn't centred:
-  it's a document on a desk.
-- **Review (≥ 1024px):** a left rail (filters, date range) of 16rem plus
-  content. The trade list chooses between **Stack** (ticket grid,
+Screens are designed at desktop width first, then reflowed down.
+
+- **Desktop (≥ 1024px), the main layout.** The new-ticket form is one wide
+  ticket, `max-width: 56rem`, four cells across, left aligned in the
+  content area. It isn't centred: it's a document on a desk. The whole
+  ticket and its primary button fit in a 1280 × 800 window without
+  scrolling. Review screens add a left rail (filters, date range) of 16rem
+  plus content. The trade list chooses between **Stack** (ticket grid,
   `minmax(16rem, 1fr)` columns) and **Sheet** (table). Sheet is the default
   at scalping volume. The choice is remembered per device.
+- **Tablet (640–1023px):** two cells across, `max-width: 40rem`. The left
+  rail becomes a filter button that opens a sheet.
+- **Phone (< 640px):** two cells across where both fit, else one. The
+  ticket spans the width with a 12px desk margin. The primary action sits
+  in a bar pinned to the bottom, inside thumb reach, and never covers the
+  focused field.
+- Cells keep their DOM order at every width, so reading order and Tab order
+  never change. The grid changes its column count, never the order.
 - Content `max-width` is 80rem. Beyond that, the desk shows.
 
 ## Components
@@ -308,11 +324,16 @@ The base container for a trade, a form or a group of stats.
 | Error      | Fill line 2px `--loss`. Message under the value in `--t-small`, `--loss`, saying how to fix it          |
 | Disabled   | Label and value in `--ink-muted`, fill line dashed                                                      |
 
-- The whole cell is the tap target (at least 44px tall), and tapping
-  anywhere in it focuses the input.
-- Prices, quantity and fees use `inputmode="decimal"` and
-  `enterkeyhint="next"`, so the phone keyboard moves through the ticket in
-  reading order.
+- The whole cell is the click and tap target (at least 44px tall), and
+  clicking anywhere in it focuses the input.
+- Prices, quantity and fees use `type="text"` with `inputmode="decimal"`,
+  so phones show the decimal keypad.
+- **Enter in a single-line field moves to the next field, it never
+  submits.** Inputs carry `enterkeyhint="next"` so the phone keyboard says
+  so. Enter in a multi-line field adds a line.
+- **Ctrl+Enter (⌘+Enter on Mac) runs the screen's primary action** from any
+  field. On desktop the primary button shows the shortcut beside it in
+  `--t-small`, `--ink-muted`.
 - Errors appear on blur or on save, never on each keystroke. Copy says what
   to change, using the trade's own terms: "Stop must be below entry for a
   long trade." "Exit time can't be before entry time." No apologies.
@@ -478,6 +499,8 @@ went, and it marks the habit the app exists for.
 
 - Focus is always visible: a 2px `--print` outline with a 2px offset,
   everywhere, from the keyboard (`:focus-visible`).
+- Every screen works from the keyboard alone, in reading order, with no
+  keyboard traps.
 - Tap targets are at least 44 × 44px.
 - Contrast is as tabled above. Any new colour pair is checked before it's
   used.

@@ -1,6 +1,6 @@
 # Spec: trades
 
-Status: #5 and #6 approved · Issues: #5, #6 (later: #7, #8, #9,
+Status: #5, #6 and #7 approved · Issues: #5, #6, #7 (later: #8, #9,
 #10) · Last updated: 2026-11-19
 
 ## Summary
@@ -16,8 +16,8 @@ settings) here and don't change the earlier sections without updating them.
 | Issue | Section             | Status  |
 | ----- | ------------------- | ------- |
 | #5    | Fields, Maths       | Done    |
-| #6    | API                 | This PR |
-| #7    | Quick-entry form    | Later   |
+| #6    | API                 | Done    |
+| #7    | Quick-entry form    | This PR |
 | #8    | Trade list          | Later   |
 | #9    | Edit, close, delete | Later   |
 | #10   | Symbol point values | Later   |
@@ -377,6 +377,338 @@ All responses have `content-type: application/json` and
 - Edit, close and delete (#9).
 - Filtering or searching the list (later stats and review issues).
 - The form (#7) and list page (#8).
+
+## Quick-entry form (#7)
+
+The "New trade" ticket from the design system (Direction A). It's the screen
+used most. **Desktop first**: trades are mostly logged at the desk, so the
+main layout is a wide ticket that fits on one screen and can be filled in
+from the keyboard alone. It stays fully usable at phone width, with one
+column, big cells and numeric keyboards. Everything lives in `apps/web`.
+**No API or shared schema changes.** The form posts to `POST /trades` (#6)
+and validates with `CreateTradeRequestSchema` before it sends.
+
+Issue #7 was written phone first ("fast on a phone between trades"). This
+spec changes its first acceptance criterion to: _I can log a closed MES
+trade in under a minute on desktop using only the keyboard, and the form is
+still usable at phone width._
+
+### Additions beyond issue #7
+
+| Addition                                                             | Why                                                                                                            |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| A **point value** cell, shown only for futures                       | The schema requires `pointValue` for a future, so a future can't be saved without it                           |
+| Point value is remembered with instrument type and side              | An MES trader types `5` once, not every trade. #10 replaces this with per-symbol values                        |
+| Typing an exit price fills a blank exit time with now                | Logging just after closing is the common case. One field instead of two                                        |
+| The signed-in home screen becomes the form; the `/me` debug lines go | The walking-skeleton text (token and API user IDs) isn't useful on the main screen. `GET /me` stays in the API |
+| Ctrl+Enter (⌘+Enter on Mac) saves from any field                     | Keyboard-only logging on desktop, without tabbing down to the button                                           |
+
+### Decisions (#7)
+
+1. **The signed-in screen is the form.** There's no router yet. A slim top
+   bar holds "Trade Journal" and "Sign out", and the ticket fills the rest.
+   #8 adds the list and decides on routing.
+2. **Validation runs `CreateTradeRequestSchema` in the browser.** The same
+   schema as the API, so the form can't accept what the server rejects. The
+   form turns its text fields into a request body (below), parses it, and
+   maps each issue's `path[0]` to the field cell it belongs to.
+3. **Error copy is the form's, not the schema's.** The schema's messages are
+   written for developers
+   (`plannedStop must be below entryPrice for a long`). The form maps them
+   to the design system's copy (table below). An unmapped message is shown
+   as is, so nothing is ever hidden. A field's generic copy ("Enter a
+   price…") replaces only field-level messages: zod's built-in ones
+   ("Invalid…", "Too small…", "Too big…") and the shared decimal schemas'.
+   A test checks every message in the
+   validation table has a mapping, so a renamed message fails a test
+   instead of falling back silently.
+4. **Errors show on blur or on save, never per keystroke** (design system).
+   Once a field has shown an error, it re-checks as it changes, so the error
+   clears as soon as it's fixed.
+5. **Server errors are handled too.** A 400's `fieldErrors` go to their
+   cells through the same mapping, and `formErrors` go in an alert above the
+   save button. That should only happen if the browser and server disagree.
+6. **Remembered defaults live in `localStorage`**, key
+   `tradeJournal.lastTrade.v1`, holding
+   `{ instrumentType, side, pointValue? }`. Written after a successful save.
+   Read with a zod schema, and anything missing or malformed falls back to
+   stock / long. Wrapped in `try`, so private browsing still works. Per
+   device, not per account: that's fine for a personal journal.
+7. **Times are `datetime-local` inputs, to the minute.** Values are entered
+   and shown in the device's time zone and sent as UTC
+   (`new Date(local).toISOString()`, e.g. `2026-11-19T09:41` in Melbourne →
+   `2026-11-18T22:41:00.000Z`). Seconds aren't entered: phone pickers handle
+   them badly, and a minute is precise enough for the journal. A local time
+   that doesn't exist (the spring-forward hour) is shifted by the browser.
+   That's acceptable for a manual log.
+8. **Entry time defaults to now**, rounded down to the minute, when the form
+   opens and after each save.
+9. **Open or closed is decided by the exit fields.** Both empty → open
+   trade. Exit price and exit time → closed. One without the other is the
+   schema's "together" rule. There's no separate open/closed switch.
+10. **Live preview uses the shared maths**, never local arithmetic. The
+    result strip runs `netPnl`, `rMultiple` and `initialRisk` on the current
+    values only when the fields they read pass their own field schemas
+    (decimal format, a point value for a future, a whole quantity for a
+    future). Otherwise the cell shows "–". The maths functions throw on bad
+    input, so they are never called with it.
+11. **Display rounding** uses `formatDecimalFixed(parseDecimal(x), 2)` from
+    shared, then the design system's format: `+$98.76`, `−$21.62`, `$0.00`,
+    `+1.98 R`. Values are exact strings until that last step.
+12. **Empty optional fields are left out of the body**, not sent as `""`.
+    Fees left empty are left out too, and the schema defaults them to `"0"`.
+    Symbol is sent as typed; the schema trims and upper-cases it.
+13. **No local stores of trades.** After a save the form only knows the
+    `TradeView` the API returned. The list is #8.
+14. **Keyboard.** Tab follows reading order, which is DOM order at every
+    width (CSS grid places cells, it never reorders them). Arrow keys move
+    within the Type and Side radio groups. **Enter in a single-line field
+    moves focus to the next field and never submits**: a native form would
+    submit on Enter, so the form handles `keydown` itself. Enter in Notes
+    adds a line. **Ctrl+Enter or ⌘+Enter saves** from any field, Notes
+    included. The save button shows the shortcut as a hint
+    (`--t-small`, `--ink-muted`) at ≥ 1024px only.
+
+### Fields and layout
+
+Cells share rules, as in the design system's ticket sketch. The ticket is
+a CSS grid whose column count changes with width. The cells and their order
+stay the same.
+
+**Desktop (≥ 1024px), the main layout.** Four columns, `max-width: 56rem`,
+left aligned in the content area. The whole ticket, result strip and save
+button fit in a 1280 × 800 window without scrolling.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ New trade                                          19 Nov  │
+├──────────────┬───────────────┬──────────────┬──────────────┤
+│ Type         │ Side          │ Symbol       │ Point value  │
+│ Stock|Future │ ▲ Long|▼ Short│ MES          │ $5 /pt       │
+├──────────────┼───────────────┼──────────────┼──────────────┤
+│ Qty          │ Entry         │ Exit         │ Fees         │
+├──────────────┴───────────────┼──────────────┴──────────────┤
+│ Entry time                   │ Exit time                   │
+├──────────────┬───────────────┼─────────────────────────────┤
+│ Stop         │ Target        │                             │
+├──────────────┴───────────────┴─────────────────────────────┤
+│ Notes (2 rows)                                             │
+╞════════════════════════════════════════════════════════════╡
+│ +$98.76                          Risk $50.00     +1.98 R   │
+└────────────────────────────────────────────────────────────┘
+[ Save trade ]  Ctrl+Enter
+```
+
+- For a stock the Point value cell is empty space, not removed, so the
+  cells after it don't jump when Type changes.
+- Net P&L in the strip is `--t-figure` (48px). R is `--t-figure-s`.
+
+**Tablet (640–1023px).** Two columns, `max-width: 40rem`. Pairs: Type |
+Side, Symbol | Point value, Qty | Entry, Exit | Fees, Entry time | Exit time,
+Stop | Target, then Notes across both. Save button under the ticket.
+
+**Phone (< 640px).** The same two-column pairs, the ticket full width with
+a 12px desk margin, Net P&L at `--t-figure-s`, and Save trade in a bar
+pinned to the bottom, inside thumb reach. The bar never covers the focused
+field (the page gets bottom padding equal to the bar). Entry time and Exit
+time each take a full row, because a `datetime-local` value is cut off in
+half the width. Below 360px, Type and Side each take a full row too, so the
+toggle labels don't wrap.
+
+```
+PHONE
+┌──────────────────────────────┐
+│ New trade            19 Nov  │
+├──────────────┬───────────────┤
+│ Type         │ Side          │
+│ Stock|Future │ ▲ Long|▼ Short│
+├──────────────┼───────────────┤
+│ Symbol       │ Point value   │
+├──────────────┼───────────────┤
+│ Qty          │ Entry         │
+├──────────────┼───────────────┤
+│ Exit         │ Fees          │
+├──────────────┴───────────────┤
+│ Entry time                   │
+├──────────────────────────────┤
+│ Exit time                    │
+├──────────────┬───────────────┤
+│ Stop         │ Target        │
+├──────────────┴───────────────┤
+│ Notes                        │
+╞══════════════════════════════╡
+│ +$98.76   Risk $50.00 +1.98 R│
+└──────────────────────────────┘
+[ Save trade ]   (pinned bar)
+```
+
+| Cell        | Body field       | Input                                                                                   | Required         |
+| ----------- | ---------------- | --------------------------------------------------------------------------------------- | ---------------- |
+| Type        | `instrumentType` | Radio group, "Stock" / "Future". Remembered                                             | Yes              |
+| Side        | `side`           | Radio group, "▲ Long" / "▼ Short". Remembered. No colour                                | Yes              |
+| Symbol      | `symbol`         | `text`, `autocapitalize="characters"`, `autocomplete="off"`, `spellcheck=false`, max 12 | Yes              |
+| Point value | `pointValue`     | `inputmode="decimal"`, `$` prefix and `/pt` suffix. Futures only. Remembered            | Futures          |
+| Qty         | `quantity`       | `inputmode="decimal"`                                                                   | Yes              |
+| Entry       | `entryPrice`     | `inputmode="decimal"`, placeholder `0.00`                                               | Yes              |
+| Exit        | `exitPrice`      | `inputmode="decimal"`, placeholder `0.00`                                               | With exit time   |
+| Fees        | `fees`           | `inputmode="decimal"`, placeholder `0.00`                                               | No (empty → `0`) |
+| Entry time  | `openedAt`       | `datetime-local`, defaults to now                                                       | Yes              |
+| Exit time   | `closedAt`       | `datetime-local`. Filled with now when an exit price is typed and it's blank            | With exit price  |
+| Stop        | `plannedStop`    | `inputmode="decimal"`                                                                   | No               |
+| Target      | `plannedTarget`  | `inputmode="decimal"`                                                                   | No               |
+| Notes       | `notes`          | `textarea`, max 5000                                                                    | No               |
+
+- Every single-line input has `enterkeyhint="next"`, so the phone keyboard
+  labels Enter as "Next", and Enter does move to the next field (decision
+  14). The last single-line field before Notes (Target) moves to Notes. The
+  whole cell is the click and tap target.
+- Switching Type to Stock hides the point value cell and leaves `pointValue`
+  out of the body. Switching back restores what was typed.
+- Number inputs are `type="text"` with `inputmode="decimal"`, not
+  `type="number"`. A number input turns `5012.` into `""` and can't hold a
+  decimal string exactly.
+- Every field has a real `<label>`. An error is linked with
+  `aria-describedby` and the input gets `aria-invalid="true"`.
+- Nothing scrolls sideways at 320px or at 200% zoom.
+
+### Result strip
+
+| Value   | Shown when                                    | Otherwise |
+| ------- | --------------------------------------------- | --------- |
+| Net P&L | `netPnl` is defined (closed, inputs valid)    | "–"       |
+| Risk    | `initialRisk` is defined (stop, inputs valid) | "–"       |
+| R       | `rMultiple` is defined                        | "–"       |
+
+- Net P&L and R use `--gain` / `--loss` with their sign. Zero is `--ink`.
+  Risk is `--ink-muted`: it's a planned amount, not a result.
+- An open trade shows "Open" in `--print` in the ticket header.
+- The strip has `aria-live="polite"` so screen readers hear the result
+  settle. Numbers never animate.
+
+### Error copy
+
+Schema message (or field and issue) → what the form shows under the cell.
+
+| Field / schema message                                 | Form shows                                                             |
+| ------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `symbol` missing                                       | Enter a symbol, like MES or AAPL.                                      |
+| `symbol` too long                                      | Symbols are 12 characters or fewer.                                    |
+| `quantity` missing or not a positive decimal           | Enter a quantity above 0, like 2.                                      |
+| `entryPrice`, `exitPrice` not a positive decimal       | Enter a price, like 5012.25.                                           |
+| `plannedStop`, `plannedTarget` not a positive decimal  | Enter a price, like 5012.25.                                           |
+| `pointValue` not a positive decimal                    | Enter dollars per point, like 5.                                       |
+| `fees` not a non-negative decimal                      | Enter fees as an amount, like 1.24, or leave blank.                    |
+| `openedAt` missing                                     | Enter the entry time.                                                  |
+| `exitPrice and closedAt …together`, exit time missing  | Add an exit time, or clear the exit price. (Shown on Exit time)        |
+| `exitPrice and closedAt …together`, exit price missing | Add an exit price, or clear the exit time. (Shown on Exit)             |
+| `closedAt must not be before openedAt`                 | Exit time can't be before entry time.                                  |
+| `pointValue is required for futures`                   | Enter dollars per point, like 5.                                       |
+| `pointValue is only allowed for futures`               | (Can't happen: the cell is hidden for stocks. Shown as is if it does.) |
+| `quantity must be a whole number for futures`          | Futures quantity must be a whole number.                               |
+| `plannedStop must be below entryPrice for a long`      | Stop must be below entry for a long trade.                             |
+| `plannedStop must be above entryPrice for a short`     | Stop must be above entry for a short trade.                            |
+| `plannedTarget must be above entryPrice for a long`    | Target must be above entry for a long trade.                           |
+| `plannedTarget must be below entryPrice for a short`   | Target must be below entry for a short trade.                          |
+| `notes` too long                                       | Notes are 5000 characters or fewer.                                    |
+
+### Saving
+
+1. "Save trade" (primary button, `type="submit"`) validates the whole form.
+   If anything fails, errors show on their cells and focus moves to the
+   first invalid field. Nothing is sent.
+2. Valid → `POST {apiUrl}/trades` with `Authorization: Bearer <token>`
+   (the access token) and the JSON body. The button reads "Saving…" and is
+   disabled, and the shortcut does nothing while a save is in flight, so a
+   double click or a repeated Ctrl+Enter can't create two trades.
+3. **201**: the response is parsed with `TradeViewSchema`. The toast says
+   "Trade saved". Type, side and point value are remembered (decision 6).
+   The form resets to those, with entry time set to now and everything else
+   blank. Focus goes to Symbol.
+4. **400**: errors go on their cells (decision 5). The values stay.
+5. **401**: alert "Your session has expired. Sign in again." with a "Sign
+   in" button. The values stay in the form until the redirect.
+6. **Anything else** (5xx, network error, a 201 body that fails parsing):
+   alert "Couldn't save the trade. Check your connection and try again."
+   The values stay. For the bad 201 body the trade may well be saved, so the
+   alert says "The trade may have been saved. Check the list before saving
+   again." instead.
+
+The design system's "filing a ticket" animation needs the list to file
+into, so it waits for #8. The toast is the confirmation for now.
+
+`apps/web/src/api.ts` gains
+`createTrade(apiUrl, token, body, fetchFn?, signal?)` returning the
+`TradeView`, or throwing `ApiError` with the status and, for a 400, the
+parsed `ErrorBody`.
+
+### Styling
+
+The first screen built on the design system, so it adds the shared pieces
+to `index.css`: the colour, type, spacing and motion tokens, Archivo from
+Google Fonts, the ticket, field cell, segmented toggle, primary button,
+alert and toast. Later screens reuse them. Nothing outside the design
+system's tokens is added. Gaps found while building are reported in the PR.
+
+### Automated tests (#7)
+
+Vitest and Testing Library in `apps/web`, with a stubbed `fetch`. The web
+test script runs with `TZ=America/New_York`, so the local → UTC conversion
+is really tested (and covers a zone with DST).
+
+- **Submit, closed trade**: fill in worked example A (MES, future, long,
+  pv 5, qty 2, 5000 → 5010, fees 1.24, stop 4995, times 09:30 → 09:45 local)
+  and save. One `POST /trades` with the bearer token and exactly this body,
+  times in UTC. "Trade saved" shows, and the form resets with Future, Long
+  and point value 5 kept.
+- **Submit, open trade**: no exit fields. The body has no `exitPrice` or
+  `closedAt`, the header shows "Open", and the strip shows Risk `$50.00`
+  with "–" for net P&L and R (example H).
+- **Live preview**: example A shows `+$98.76` and `+1.98 R` as the last field
+  is typed; example B shows `−$21.62` and `−1.08 R`. Clearing the exit price
+  returns them to "–".
+- **Validation**: each shows next to its own field and blocks the request:
+  missing symbol, a bad price, a future without point value, a fractional
+  futures quantity, a stop on the wrong side (long and short), exit price
+  without exit time, exit time before entry time. Errors appear on blur, not
+  while typing, and clear once fixed. Focus goes to the first invalid field
+  on save.
+- **Error copy coverage**: every message in the validation table has a
+  mapping.
+- **Server errors**: a 400 with `fieldErrors.plannedStop` shows on Stop; a
+  401 shows the session alert; a 500 and a network failure show the retry
+  alert, and the values are kept in each case. The button is disabled
+  while saving and a second click sends nothing.
+- **Defaults**: entry time is now (fake timers). Type, side and point value
+  come from `localStorage`; a malformed or missing entry falls back to
+  stock / long; a throwing `localStorage` doesn't break the form.
+- **Exit time fill**: typing an exit price fills a blank exit time with now,
+  and doesn't overwrite one already set.
+- **`createTrade`** (`api.test.ts`): the request it sends, a 201 parsed to a
+  `TradeView`, a 400 carrying its `ErrorBody`, and a malformed 201.
+- **Keyboard**: Enter in a single-line field moves focus to the next field
+  and sends nothing; Enter in Notes doesn't save; Ctrl+Enter and ⌘+Enter
+  save from any field, Notes included; a second Ctrl+Enter while saving
+  sends nothing. Tab order matches the field table above (the layout's reading order).
+- **Accessibility**: every input is found by its label, and an errored input
+  has `aria-invalid` and is described by its message.
+
+### Manual check
+
+- **Desktop** (a 1280 × 800 window): the whole ticket and Save trade are on
+  screen without scrolling. Log a closed MES trade from a fresh screen in
+  under a minute with the keyboard only (Tab, Enter, arrows, Ctrl+Enter).
+- **Tablet and phone** (768px and 375px wide, then a real phone): the
+  two-column layout, the pinned save bar on phone, and the decimal keypad
+  for prices, quantity, fees and point value. Nothing scrolls sideways at
+  320px.
+
+### Out of scope for #7
+
+- The trade list and the filing animation (#8).
+- Editing, closing an open trade later, and delete (#9).
+- Point values per symbol and symbol suggestions (#10).
+- Setup and mistake tags, emotion notes and screenshots (later issues).
+- A manual light/dark override. The form follows `prefers-color-scheme`.
 
 ## Open questions
 
