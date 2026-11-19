@@ -1,6 +1,6 @@
 # Spec: trades
 
-Status: #5 and #6 approved, #7 draft · Issues: #5, #6, #7 (later: #8, #9,
+Status: #5, #6 and #7 approved · Issues: #5, #6, #7 (later: #8, #9,
 #10) · Last updated: 2026-11-19
 
 ## Summary
