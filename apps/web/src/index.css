@@ -1,5 +1,10 @@
 :root {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
   line-height: 1.5;
   color: #111827;
   background: #ffffff;
@@ -39,4 +44,12 @@ p {
     color: #f9fafb;
     background: #111827;
   }
+}
+
+button {
+  min-height: 2.75rem;
+  margin-top: 1rem;
+  padding: 0.5rem 1.25rem;
+  font: inherit;
+  cursor: pointer;
 }
