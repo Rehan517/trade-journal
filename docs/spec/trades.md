@@ -1,6 +1,6 @@
 # Spec: trades
 
-Status: draft, awaiting review · Issues: #5 (later sections: #6, #7, #8, #9,
+Status: #5 approved; #6 API draft, awaiting review · Issues: #5, #6 (later: #7, #8, #9,
 #10) · Last updated: 2026-11-19
 
 ## Summary
@@ -16,7 +16,7 @@ settings) here and don't change the earlier sections without updating them.
 | Issue | Section             | Status  |
 | ----- | ------------------- | ------- |
 | #5    | Fields, Maths       | This PR |
-| #6    | API                 | Later   |
+| #6    | API                 | Draft   |
 | #7    | Quick-entry form    | Later   |
 | #8    | Trade list          | Later   |
 | #9    | Edit, close, delete | Later   |
@@ -211,6 +211,166 @@ Vitest, in `packages/shared`.
 - Stats over many trades (#17–#19). They will reuse the decimal module.
 - Several fills per trade (#26), other instruments (#29), and other
   currencies.
+
+## API (#6)
+
+Three authenticated routes on the existing HTTP API, behind the Cognito JWT
+authorizer. Handlers live in `apps/api`, request and response schemas in
+`packages/shared/src/trade-api.ts`, and the routes and table changes in
+`infra`.
+
+| Route              | Lambda                | Success | DynamoDB action |
+| ------------------ | --------------------- | ------- | --------------- |
+| `POST /trades`     | `CreateTradeFunction` | 201     | `PutItem`       |
+| `GET /trades/{id}` | `GetTradeFunction`    | 200     | `GetItem`       |
+| `GET /trades`      | `ListTradesFunction`  | 200     | `Query`         |
+
+### Decisions (#6)
+
+1. **One Lambda per route.** Each role is granted only its one action on the
+   Trades table (the list role also on its index). No `grantReadData` or
+   `grantReadWriteData`, because those add `Scan`, `BatchGetItem` and others.
+2. **The caller is the Cognito `sub` from an access token.** The same check
+   as `GET /me` (`token_use` must be `access`, `sub` a non-empty string),
+   moved into a shared helper in `apps/api/src/lib/auth.ts`. Anything else is 401. The user ID never comes from the path, query or body.
+3. **Keys.** `pk = USER#<sub>`, `sk = TRADE#<id>`. Every read uses the
+   caller's `pk`, so another user's trade simply isn't found.
+4. **Newest first means newest `openedAt`**, not newest created. Back-filling
+   last week's trades puts them in date order, which is what the list (#8)
+   shows. Ties are broken by `id`.
+5. **Ordering uses a local secondary index**, `byOpenedAt`, on `pk` and
+   `openedAtKey`. `openedAtKey` is `openedAt` with its fraction padded to 9
+   digits, then `#<id>`, e.g. `2026-11-19T01:30:00.000000000Z#<uuid>`.
+   Padding makes string order match time order (`"…00Z"` sorts after
+   `"…00.5Z"` otherwise).
+   - An LSI, not a GSI, so the list is strongly consistent: a trade shows in
+     the list straight after it's created. When #9 edits `openedAt`, the
+     index follows the item.
+   - An LSI can only be added when a table is created, so this change
+     **replaces the dev Trades table**. It holds no trades yet (this is the
+     first route that writes), so nothing is lost. Adding it later would lose
+     data.
+   - Putting `openedAt` in `sk` instead would mean `GET /trades/{id}` can't
+     find a trade by ID alone.
+6. **The server sets `id`, `createdAt` and `updatedAt`.** `id` is
+   `crypto.randomUUID()`. `createdAt` and `updatedAt` are UTC ISO 8601 from
+   `new Date().toISOString()`; they're equal on create. #9 updates
+   `updatedAt`.
+7. **Unknown body keys are rejected**, including `id`, `createdAt` and
+   `updatedAt`. A typo such as `planedStop` would otherwise be dropped
+   silently and the trade saved without its stop.
+8. **Metrics are computed on read, never stored.** Each response runs the
+   shared maths functions. A future fix to the maths then applies to every
+   trade, and there's no stored copy to go stale.
+9. **Decimals stay strings in DynamoDB** (attribute type `S`), exactly as
+   validated. Nothing is converted to a DynamoDB number or a JS `number`.
+10. **Items read back are parsed with `TradeSchema`.** An item that fails is
+    a server bug: it's logged and the request returns 500, rather than
+    sending a malformed trade to the UI.
+11. **SDK.** `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb`. The
+    Node 22 Lambda runtime includes them, and `NodejsFunction` leaves
+    `@aws-sdk/*` out of the bundle by default.
+
+### Request and response
+
+`POST /trades` body: `CreateTradeRequestSchema`, which is
+`TradeFieldsSchema.omit({ id: true }).strict().superRefine(checkTrade)`. All
+the field rules and the validation table above apply unchanged.
+
+Every trade in a response is a `TradeView`:
+
+```ts
+type TradeMetrics = {
+  grossPnl?: string;
+  netPnl?: string;
+  initialRisk?: string;
+  rMultiple?: string;
+  outcome?: TradeOutcome;
+};
+
+type TradeView = Trade & {
+  createdAt: string; // UTC ISO 8601
+  updatedAt: string; // UTC ISO 8601
+  metrics: TradeMetrics;
+};
+```
+
+- `metrics` is always present. A key is left out (not `null`) when the maths
+  function returns `undefined`, so an open trade without a stop has
+  `metrics: {}`.
+- `POST /trades` → 201 with the `TradeView`.
+- `GET /trades/{id}` → 200 with the `TradeView`.
+- `GET /trades` → 200 with `{ items: TradeView[], nextCursor?: string }`.
+
+All responses have `content-type: application/json` and
+`cache-control: no-store`, like `GET /me`.
+
+### Pagination
+
+- `limit`: whole number 1–100, default 25.
+- `cursor`: opaque. It's base64url JSON of the last item's `sk` and
+  `openedAtKey`. The server adds the caller's `pk` when it rebuilds
+  `ExclusiveStartKey`, so a cursor can't point into another user's trades.
+- `nextCursor` is present only when DynamoDB returns a `LastEvaluatedKey`.
+  As DynamoDB does, the last page can come back with `nextCursor` and the
+  next request then returns `{ items: [] }`.
+- A malformed `cursor` or out-of-range `limit` is 400.
+
+### Errors
+
+| Case                                                | Status | Body                                                    |
+| --------------------------------------------------- | ------ | ------------------------------------------------------- |
+| No access token, ID token, or no `sub`              | 401    | `{ message: "Unauthorized" }`                           |
+| Body isn't JSON                                     | 400    | `{ message: "Body must be valid JSON" }`                |
+| Body fails `CreateTradeRequestSchema`               | 400    | `{ message: "Invalid trade", fieldErrors, formErrors }` |
+| Bad `limit` or `cursor`                             | 400    | `{ message: "Invalid query", fieldErrors, formErrors }` |
+| Trade not found, another user's, or a non-UUID `id` | 404    | `{ message: "Trade not found" }`                        |
+| DynamoDB error or a stored item fails parsing       | 500    | `{ message: "Internal error" }`                         |
+
+- `fieldErrors` and `formErrors` come from `z.flattenError`:
+  `fieldErrors` maps a field name to its messages, so the form (#7) can show
+  each one next to its input. `formErrors` holds body-level problems, such as
+  an unknown key or a body that isn't an object.
+- A non-UUID `id` is 404, not 400: the answer is the same as for a trade
+  that belongs to someone else.
+- 500 bodies never include the error. The detail goes to the log.
+
+### Infra
+
+- `TABLE_NAME` environment variable on all three functions.
+- CORS `allowMethods` adds `POST`.
+- `GET /health` stays public and `GET /me` is unchanged.
+
+### Automated tests (#6)
+
+- **Handlers** (`apps/api`, Vitest). Handlers take a `TradeStore` interface,
+  so the tests use an in-memory store with the same keys and ordering.
+  - Round trip: create, then get it by ID, then find it in the list, with
+    the same fields and metrics. Example A from the maths table comes back
+    with `netPnl` `"98.76"` and `rMultiple` `"1.98"`.
+  - Another user's ID: user B gets 404 for a trade user A created, and B's
+    list doesn't include it.
+  - 400 with `fieldErrors` for: a future without `pointValue`, a stop on the
+    wrong side, an unknown key, `id` in the body, and a body that isn't
+    JSON.
+  - List order is newest `openedAt` first, including a trade back-filled
+    after a newer one. Paging with `limit` and `nextCursor` returns every
+    trade exactly once. Bad `limit` and `cursor` are 400.
+  - Each handler returns 401 for the cases in the `GET /me` tests.
+- **DynamoDB store** (`aws-sdk-client-mock`): the commands sent. `PutItem`
+  has `attribute_not_exists(sk)`, `GetItem` uses the caller's `pk`, `Query`
+  uses `byOpenedAt` with `ScanIndexForward: false`, and decimals are stored
+  as strings.
+- **Infra** (`infra/test/api.test.ts`): the three routes use the JWT
+  authorizer; each role has exactly its one DynamoDB action on the table (and
+  the index for list) and nothing else; `/health` and `/me` roles still have
+  no policies; the table has the `byOpenedAt` LSI; CORS allows `POST`.
+
+### Out of scope for #6
+
+- Edit, close and delete (#9).
+- Filtering or searching the list (later stats and review issues).
+- The form (#7) and list page (#8).
 
 ## Open questions
 
