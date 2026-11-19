@@ -6,6 +6,7 @@ const valid = {
   userPoolId: 'ap-southeast-2_AbCdEf123',
   userPoolClientId: 'client123',
   authDomain: 'https://example.auth.ap-southeast-2.amazoncognito.com',
+  apiUrl: 'https://abc123defg.execute-api.ap-southeast-2.amazonaws.com',
 };
 
 const respond = (body: string, status = 200) =>
@@ -66,6 +67,26 @@ describe('loadConfig', () => {
     ]) {
       const body = JSON.stringify({ ...valid, authDomain });
       await expect(loadConfig(respond(body)), authDomain).rejects.toThrow(
+        /invalid/,
+      );
+    }
+  });
+
+  it('rejects a missing, trailing-slash or non-API-Gateway apiUrl', async () => {
+    const { apiUrl: _omitted, ...rest } = valid;
+    void _omitted;
+    await expect(loadConfig(respond(JSON.stringify(rest)))).rejects.toThrow(
+      /invalid/,
+    );
+    for (const apiUrl of [
+      `${valid.apiUrl}/`,
+      'http://abc123defg.execute-api.ap-southeast-2.amazonaws.com',
+      'https://evil.example.com',
+      `${valid.apiUrl}.evil.com`,
+      `${valid.apiUrl}/path`,
+    ]) {
+      const body = JSON.stringify({ ...valid, apiUrl });
+      await expect(loadConfig(respond(body)), apiUrl).rejects.toThrow(
         /invalid/,
       );
     }

@@ -6,6 +6,7 @@ const config = {
   userPoolId: 'ap-southeast-2_AbCdEf123',
   userPoolClientId: 'client123',
   authDomain: 'https://example.auth.ap-southeast-2.amazoncognito.com',
+  apiUrl: 'https://abc123defg.execute-api.ap-southeast-2.amazonaws.com',
 };
 
 describe('buildOidcSettings', () => {

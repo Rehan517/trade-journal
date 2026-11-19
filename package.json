@@ -5,8 +5,8 @@
   "description": "",
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "typecheck": "pnpm --filter @trade-journal/shared build && pnpm -r typecheck",
+    "test": "pnpm --filter @trade-journal/shared build && pnpm -r test",
     "build": "pnpm -r build",
     "format": "prettier --write ."
   },
