@@ -25,7 +25,7 @@ export class ApiError extends Error {
   }
 }
 
-/** Status 0 marks a 200 response whose body didn't match the schema. */
+/** Status 0 marks a successful response whose body didn't match the schema. */
 export const INVALID_RESPONSE_STATUS = 0;
 
 export async function fetchMe(

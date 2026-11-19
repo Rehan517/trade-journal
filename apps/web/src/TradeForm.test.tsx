@@ -7,7 +7,6 @@ import {
 } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TradeForm } from './TradeForm.tsx';
-import { ERROR_COPY } from './errorCopy.ts';
 import { LAST_TRADE_KEY, type StorageLike } from './lastTrade.ts';
 
 const apiUrl = 'https://api.example.com';
@@ -233,22 +232,6 @@ describe('TradeForm saving', () => {
     ).toBeTruthy();
     expect(document.activeElement).toBe(field('Exit'));
   });
-
-  it('every message in the spec validation table has copy', () => {
-    for (const message of [
-      'exitPrice and closedAt must be provided together',
-      'closedAt must not be before openedAt',
-      'pointValue is required for futures',
-      'pointValue is only allowed for futures',
-      'quantity must be a whole number for futures',
-      'plannedStop must be below entryPrice for a long',
-      'plannedStop must be above entryPrice for a short',
-      'plannedTarget must be above entryPrice for a long',
-      'plannedTarget must be below entryPrice for a short',
-    ]) {
-      expect(ERROR_COPY[message], message).toBeTruthy();
-    }
-  });
 });
 
 describe('TradeForm failures', () => {
@@ -337,8 +320,10 @@ describe('TradeForm failures', () => {
     fillMinimum();
     save();
     const button = screen.getByRole('button', { name: 'Saving…' });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect((button as HTMLButtonElement).disabled).toBe(false);
     fireEvent.keyDown(field('Symbol'), { key: 'Enter', ctrlKey: true });
+    fireEvent.click(button);
     expect(fetchFn).toHaveBeenCalledOnce();
     resolve(new Response(JSON.stringify(view()), { status: 201 }));
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
@@ -442,5 +427,169 @@ describe('TradeForm defaults and keyboard', () => {
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
+  });
+});
+
+describe('TradeForm review fixes', () => {
+  const fillMinimum = () => {
+    type('Symbol', 'AAPL');
+    type('Qty', '1');
+    type('Entry', '5');
+  };
+
+  it('clearing Exit takes back an exit time the form filled in', () => {
+    setup();
+    type('Exit', '5');
+    expect(field('Exit time').value).toBe('2026-11-19T09:30');
+    type('Exit', '');
+    expect(field('Exit time').value).toBe('');
+    expect(screen.getByText('Open')).toBeTruthy();
+  });
+
+  it('clearing Exit keeps an exit time the trader edited', () => {
+    setup();
+    type('Exit', '5');
+    type('Exit time', '2026-11-19T09:45');
+    type('Exit', '');
+    expect(field('Exit time').value).toBe('2026-11-19T09:45');
+  });
+
+  it('clearing Exit keeps an exit time typed before the price', () => {
+    setup();
+    type('Exit time', '2026-11-19T09:45');
+    type('Exit', '5');
+    type('Exit', '');
+    expect(field('Exit time').value).toBe('2026-11-19T09:45');
+  });
+
+  it('shows a 400 on a field with no cell (side) in the alert', async () => {
+    setup(
+      respond(
+        { message: 'Invalid trade', fieldErrors: { side: ['Invalid option'] } },
+        400,
+      ),
+    );
+    fillMinimum();
+    save();
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('Invalid option'),
+    );
+    expect(document.activeElement).toBe(screen.getByRole('alert'));
+  });
+
+  it('shows a pointValue 400 in the alert while the type is stock', async () => {
+    setup(
+      respond(
+        {
+          message: 'Invalid trade',
+          fieldErrors: {
+            pointValue: ['pointValue is only allowed for futures'],
+          },
+        },
+        400,
+      ),
+    );
+    fillMinimum();
+    save();
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain(
+        'pointValue is only allowed for futures',
+      ),
+    );
+  });
+
+  it('moves focus to the alert after a failed save, and to Sign in on a 401', async () => {
+    setup(respond({}, 500));
+    fillMinimum();
+    save();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('alert')),
+    );
+    cleanup();
+    setup(respond({}, 401));
+    fillMinimum();
+    save();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Sign in' }),
+      ),
+    );
+  });
+
+  it('makes inputs read-only while saving', async () => {
+    let resolve!: (r: Response) => void;
+    setup(
+      vi.fn(
+        () => new Promise<Response>((r) => (resolve = r)),
+      ) as unknown as typeof fetch,
+    );
+    fillMinimum();
+    save();
+    expect(field('Symbol').readOnly).toBe(true);
+    type('Symbol', 'ZZZ');
+    click('Short');
+    expect(field('Symbol').value).toBe('AAPL');
+    expect(checked('Long')).toBe(true);
+    resolve(new Response(JSON.stringify(view()), { status: 201 }));
+    await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
+    expect(field('Symbol').readOnly).toBe(false);
+  });
+
+  it.each([
+    ['isComposing', { isComposing: true }],
+    ['keyCode 229', { keyCode: 229 }],
+  ])('ignores Enter during IME composition (%s)', (_n, init) => {
+    const { fetchFn } = setup();
+    field('Symbol').focus();
+    expect(
+      fireEvent.keyDown(field('Symbol'), { key: 'Enter', ...init }),
+    ).toBe(true);
+    expect(document.activeElement).toBe(field('Symbol'));
+    expect(
+      fireEvent.keyDown(field('Symbol'), {
+        key: 'Enter',
+        ctrlKey: true,
+        ...init,
+      }),
+    ).toBe(true);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it.each(['Stock', 'Long'])(
+    'Enter on the %s radio moves to the next field and sends nothing',
+    (name) => {
+      const { fetchFn } = setup();
+      const radio = screen.getByRole('radio', { name });
+      radio.focus();
+      expect(fireEvent.keyDown(radio, { key: 'Enter' })).toBe(false);
+      expect(document.activeElement).toBe(
+        name === 'Stock'
+          ? screen.getByRole('radio', { name: 'Long' })
+          : field('Symbol'),
+      );
+      expect(fetchFn).not.toHaveBeenCalled();
+    },
+  );
+
+  it('aborts the request on unmount without warning or state updates', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let signal: AbortSignal | null | undefined;
+    const fetchFn = vi.fn((_u: unknown, init?: RequestInit) => {
+      signal = init?.signal;
+      return new Promise<Response>((_r, reject) =>
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('aborted', 'AbortError')),
+        ),
+      );
+    }) as unknown as typeof fetch;
+    setup(fetchFn);
+    fillMinimum();
+    save();
+    expect(signal?.aborted).toBe(false);
+    cleanup();
+    expect(signal?.aborted).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
   });
 });

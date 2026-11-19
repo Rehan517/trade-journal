@@ -87,7 +87,16 @@ const NAV_SELECTOR =
 
 function focusNext(form: HTMLFormElement, from: Element) {
   const all = [...form.querySelectorAll<HTMLElement>(NAV_SELECTOR)];
-  const next = all[all.indexOf(from as HTMLElement) + 1];
+  // An unchecked radio stands in for its group's checked one.
+  const current =
+    from instanceof HTMLInputElement && from.type === 'radio'
+      ? (form.querySelector<HTMLElement>(
+          `input[type="radio"][name="${from.name}"]:checked`,
+        ) ?? from)
+      : from;
+  const index = all.indexOf(current as HTMLElement);
+  if (index === -1) return;
+  const next = all[index + 1];
   if (!next) return;
   next.focus();
   if (
@@ -142,8 +151,22 @@ export function TradeForm({
   const savingRef = useRef(false);
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const toastId = useRef(0);
+  const alertRef = useRef<HTMLDivElement>(null);
+  const [autoFilledExit, setAutoFilledExit] = useState<string>();
+  const focusAlertNext = useRef(false);
+  // The exit time this form filled in itself, so clearing the exit price can
+  // take it back out. An exit time the trader typed or edited never matches.
+  
 
   useEffect(() => () => controllerRef.current?.abort(), []);
+
+  // After a failed save, keyboard users land on the message (or its button).
+  useEffect(() => {
+    if (!alert || !focusAlertNext.current) return;
+    focusAlertNext.current = false;
+    const button = alertRef.current?.querySelector<HTMLElement>('button');
+    (button ?? alertRef.current)?.focus();
+  }, [alert]);
 
   const check = useMemo(() => checkForm(values), [values]);
   const errors: FieldErrors = check.ok ? {} : check.errors;
@@ -155,6 +178,7 @@ export function TradeForm({
   const open = values.exitPrice.trim() === '' && values.closedAt === '';
 
   function update(patch: Partial<FormValues>) {
+    if (saving) return;
     const next = { ...values, ...patch };
     setValues(next);
     const result = checkForm(next);
@@ -175,15 +199,23 @@ export function TradeForm({
   }
 
   function change(field: keyof FormValues, value: string) {
+    if (saving) return;
     const patch: Partial<FormValues> = { [field]: value };
-    // Logging just after closing is the usual case: typing an exit price
-    // starts the exit time at now, unless there's already one.
-    if (
-      field === 'exitPrice' &&
-      value.trim() !== '' &&
-      values.closedAt === ''
-    ) {
-      patch.closedAt = toLocalInputValue(now());
+    if (field === 'exitPrice') {
+      if (value.trim() !== '' && values.closedAt === '') {
+        // Logging just after closing is the usual case: typing an exit price
+        // starts the exit time at now, unless there's already one.
+        patch.closedAt = toLocalInputValue(now());
+        setAutoFilledExit(patch.closedAt);
+      } else if (
+        value.trim() === '' &&
+        autoFilledExit !== undefined &&
+        values.closedAt === autoFilledExit
+      ) {
+        // The exit price is gone and the time is still the one we filled in.
+        patch.closedAt = '';
+        setAutoFilledExit(undefined);
+      }
     }
     update(patch);
   }
@@ -207,10 +239,15 @@ export function TradeForm({
         ) as Partial<Record<FieldName, true>>,
       );
       const first = firstInvalid(check.errors);
+      if (check.other.length > 0) {
+        setAlert({ kind: 'message', messages: check.other });
+        focusAlertNext.current = first === undefined;
+      }
       if (first) focusField(first);
       return;
     }
     if (!accessToken) {
+      focusAlertNext.current = true;
       setAlert({ kind: 'session' });
       return;
     }
@@ -242,6 +279,7 @@ export function TradeForm({
       setToast({ id: toastId.current, message: 'Trade saved' });
       setValues(blankValues(now, last));
       setArmed({});
+      setAutoFilledExit(undefined);
       focusField('symbol');
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -253,6 +291,7 @@ export function TradeForm({
   }
 
   function handleFailure(err: unknown) {
+    focusAlertNext.current = true;
     if (err instanceof ApiError && err.status === 401) {
       setAlert({ kind: 'session' });
       return;
@@ -276,7 +315,14 @@ export function TradeForm({
           continue;
         }
         const at = placeIssue(name, message, values);
-        placed[at.field] ??= at.text;
+        // Type and side have no error slot, and the point value cell is
+        // hidden for a stock: those go in the alert so nothing is swallowed.
+        const shown =
+          at.field !== 'instrumentType' &&
+          at.field !== 'side' &&
+          (at.field !== 'pointValue' || values.instrumentType === 'future');
+        if (shown) placed[at.field] ??= at.text;
+        else messages.push(at.text);
       }
     }
     setServerErrors(placed);
@@ -285,7 +331,10 @@ export function TradeForm({
     }
     setAlert(messages.length > 0 ? { kind: 'message', messages } : null);
     const first = firstInvalid(placed);
-    if (first) focusField(first);
+    if (first) {
+      focusAlertNext.current = false;
+      focusField(first);
+    }
   }
 
   function onSubmit(e: FormEvent) {
@@ -294,7 +343,7 @@ export function TradeForm({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLFormElement>) {
-    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       void save();
@@ -315,6 +364,7 @@ export function TradeForm({
     error: errorFor(field),
     onChange: (v: string) => change(field as keyof FormValues, v),
     onBlur: () => blur(field),
+    readOnly: saving,
   });
 
   return (
@@ -403,6 +453,7 @@ export function TradeForm({
           <div className="cell cell--filler" aria-hidden="true" />
           <NotesCell
             value={values.notes}
+            readOnly={saving}
             error={errorFor('notes')}
             onChange={(v) => change('notes', v)}
             onBlur={() => blur('notes')}
@@ -413,7 +464,7 @@ export function TradeForm({
       </div>
 
       {alert && (
-        <Alert>
+        <Alert alertRef={alertRef}>
           {alert.kind === 'session' ? (
             <>
               <p>{SESSION_EXPIRED}</p>
@@ -426,7 +477,7 @@ export function TradeForm({
               </button>
             </>
           ) : (
-            alert.messages.map((m) => <p key={m}>{m}</p>)
+            alert.messages.map((m, i) => <p key={i}>{m}</p>)
           )}
         </Alert>
       )}
@@ -435,7 +486,7 @@ export function TradeForm({
         <button
           type="submit"
           className="btn btn--primary"
-          disabled={saving}
+          aria-disabled={saving ? 'true' : undefined}
           aria-keyshortcuts="Control+Enter Meta+Enter"
         >
           {saving ? 'Saving…' : 'Save trade'}

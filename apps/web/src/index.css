@@ -150,7 +150,8 @@ p {
   filter: brightness(0.86);
 }
 
-.btn:disabled {
+.btn:disabled,
+.btn[aria-disabled='true'] {
   opacity: 0.7;
   cursor: progress;
   filter: none;

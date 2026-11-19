@@ -5,23 +5,12 @@
  * so nothing is ever hidden.
  */
 
-export type FieldName =
-  | 'instrumentType'
-  | 'side'
-  | 'symbol'
-  | 'pointValue'
-  | 'quantity'
-  | 'entryPrice'
-  | 'exitPrice'
-  | 'fees'
-  | 'openedAt'
-  | 'closedAt'
-  | 'plannedStop'
-  | 'plannedTarget'
-  | 'notes';
+import type { CreateTradeRequestInput } from '@trade-journal/shared';
+
+export type FieldName = keyof CreateTradeRequestInput;
 
 /** Reading order, which is also DOM order and Tab order at every width. */
-export const FIELD_ORDER: readonly FieldName[] = [
+const ORDER = [
   'instrumentType',
   'side',
   'symbol',
@@ -35,7 +24,15 @@ export const FIELD_ORDER: readonly FieldName[] = [
   'plannedStop',
   'plannedTarget',
   'notes',
-];
+] as const satisfies readonly FieldName[];
+
+// Fails to compile if the request gains a field that isn't listed above.
+const _complete: Exclude<FieldName, (typeof ORDER)[number]> extends never
+  ? true
+  : never = true;
+void _complete;
+
+export const FIELD_ORDER: readonly FieldName[] = ORDER;
 
 /** DOM id of a field's input. */
 export const fieldId = (field: FieldName) => `tf-${field}`;

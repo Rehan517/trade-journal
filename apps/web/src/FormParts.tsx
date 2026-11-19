@@ -3,6 +3,7 @@ import {
   useRef,
   type ChangeEvent,
   type ReactNode,
+  type Ref,
   type MouseEvent,
 } from 'react';
 import { fieldId, type FieldName } from './errorCopy.ts';
@@ -35,6 +36,7 @@ export function TextCell({
   suffix,
   maxLength,
   symbol = false,
+  readOnly = false,
 }: {
   field: FieldName;
   label: string;
@@ -51,6 +53,7 @@ export function TextCell({
   suffix?: string;
   maxLength?: number;
   symbol?: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <div
@@ -80,6 +83,7 @@ export function TextCell({
           enterKeyHint="next"
           placeholder={placeholder}
           maxLength={maxLength}
+          readOnly={readOnly}
           autoComplete="off"
           autoCapitalize={symbol ? 'characters' : undefined}
           spellCheck={symbol ? false : undefined}
@@ -102,11 +106,13 @@ export function TextCell({
 }
 
 export function NotesCell({
+  readOnly = false,
   value,
   onChange,
   onBlur,
   error,
 }: {
+  readOnly?: boolean;
   value: string;
   onChange: (value: string) => void;
   onBlur: () => void;
@@ -128,6 +134,7 @@ export function NotesCell({
           rows={2}
           value={value}
           maxLength={5000}
+          readOnly={readOnly}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
           aria-invalid={error ? 'true' : undefined}
@@ -306,9 +313,15 @@ export function Toast({
   );
 }
 
-export function Alert({ children }: { children: ReactNode }) {
+export function Alert({
+  children,
+  alertRef,
+}: {
+  children: ReactNode;
+  alertRef?: Ref<HTMLDivElement>;
+}) {
   return (
-    <div className="alert" role="alert">
+    <div className="alert" role="alert" tabIndex={-1} ref={alertRef}>
       {children}
     </div>
   );

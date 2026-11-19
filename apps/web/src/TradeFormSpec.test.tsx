@@ -697,7 +697,6 @@ describe('validation', () => {
   it('clears an error as soon as it is fixed, without leaving the field, and drops aria-invalid', () => {
     setup();
     fillStock();
-    save(); // all valid: nothing shown
     type('Stop', '101');
     fireEvent.blur(field('Stop'));
     expect(field('Stop').getAttribute('aria-invalid')).toBe('true');
@@ -742,12 +741,16 @@ describe('validation', () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  it('focuses Stop before Target, and Exit before Fees, per reading order', () => {
+  it('focuses Exit before Fees, and Fees before Stop, per reading order', () => {
     setup();
     fillStock();
     type('Target', 'x');
     type('Stop', 'x');
     type('Fees', 'x');
+    type('Exit', 'x');
+    save();
+    expect(document.activeElement).toBe(field('Exit'));
+    type('Exit', '');
     save();
     expect(document.activeElement).toBe(field('Fees'));
     type('Fees', '');
@@ -1020,9 +1023,10 @@ describe('server errors', () => {
     );
     expectKept();
     expect(
-      (screen.getByRole('button', { name: 'Save trade' }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
+      screen
+        .getByRole('button', { name: 'Save trade' })
+        .getAttribute('aria-disabled'),
+    ).toBeNull();
     save();
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
     expect(fetchFn).toHaveBeenCalledTimes(2);
@@ -1104,7 +1108,7 @@ describe('saving in flight', () => {
     const button = screen.getByRole('button', {
       name: 'Saving…',
     }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(button);
     fireEvent.click(button);
     fireEvent.submit(field('Symbol').closest('form')!);
@@ -1357,6 +1361,17 @@ describe('keyboard', () => {
     expect(screen.queryByText('Trade saved')).toBeNull();
   });
 
+  it('Enter in an invalid form sends nothing and does not flag untouched fields', () => {
+    const { fetchFn } = setup();
+    type('Entry', 'abc');
+    field('Entry').focus();
+    fireEvent.keyDown(field('Entry'), { key: 'Enter' });
+    expect(document.activeElement).toBe(field('Exit'));
+    // Leaving Entry shows its own error (blur); fields never visited stay quiet.
+    expect(field('Symbol').getAttribute('aria-invalid')).toBeNull();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('Enter in Notes adds a line: no focus move, no save, not prevented', () => {
     const { fetchFn } = setup();
     fillStock();
@@ -1424,9 +1439,6 @@ describe('keyboard', () => {
         el.getAttribute('tabindex') !== '-1',
     );
     expect(stops).toHaveLength(futureOrder.length + 1);
-    expect(
-      stops.every((el) => el.getAttribute('tabindex') !== '0' || true),
-    ).toBe(true);
     // No positive tabindex anywhere: it would reorder Tab away from DOM order.
     for (const el of form.querySelectorAll('[tabindex]')) {
       expect(Number(el.getAttribute('tabindex'))).toBeLessThanOrEqual(0);
