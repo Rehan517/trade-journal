@@ -416,7 +416,10 @@ still usable at phone width._
    written for developers
    (`plannedStop must be below entryPrice for a long`). The form maps them
    to the design system's copy (table below). An unmapped message is shown
-   as is, so nothing is ever hidden. A test checks every message in the
+   as is, so nothing is ever hidden. A field's generic copy ("Enter a
+   price…") replaces only field-level messages: zod's built-in ones
+   ("Invalid…", "Too small…", "Too big…") and the shared decimal schemas'.
+   A test checks every message in the
    validation table has a mapping, so a renamed message fails a test
    instead of falling back silently.
 4. **Errors show on blur or on save, never per keystroke** (design system).

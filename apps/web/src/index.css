@@ -1,55 +1,637 @@
+/*
+ * Pit card design system (docs/design/system.md): tokens first, then the
+ * shared components (ticket, field cell, segmented toggle, buttons, alert,
+ * toast), then the screens built from them. Nothing here is a value the
+ * system doesn't define.
+ */
+
 :root {
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-  line-height: 1.5;
-  color: #111827;
-  background: #ffffff;
+  color-scheme: light dark;
+
+  /* Colour: day desk */
+  --desk: #e3e8ee;
+  --ticket: #ffffff;
+  --ink: #1c2733;
+  --ink-muted: #566475;
+  --print: #2c55c7;
+  --gain: #0f7052;
+  --loss: #b33524;
+  --rule-field: #7e8c9c;
+  --rule: #c9d2dc;
+  /* Button text on --print: white by day, the desk colour by night. */
+  --on-print: var(--ticket);
+
+  /* Type. Size/line pairs; the width axis is set separately (font resets it). */
+  --font: Archivo, 'Arial Narrow', system-ui, sans-serif;
+  --t-figure: 750 3rem/3.25rem var(--font);
+  --t-figure-s: 750 2.25rem/2.5rem var(--font);
+  --t-heading: 650 1.5rem/1.875rem var(--font);
+  --t-title: 600 1.3125rem/1.75rem var(--font);
+  --t-value: 600 1.125rem/1.5rem var(--font);
+  --t-body: 400 1rem/1.5rem var(--font);
+  --t-label: 550 0.875rem/1.125rem var(--font);
+  --t-small: 450 0.75rem/1rem var(--font);
+  --w-figure: 125%;
+  --w-value: 112%;
+  --w-normal: 100%;
+  --w-label: 80%;
+  --w-small: 85%;
+
+  /* Spacing, 4px base */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-6: 1.5rem;
+  --s-8: 2rem;
+  --s-12: 3rem;
+  --s-16: 4rem;
+
+  /* Shape */
+  --r-ticket: 6px;
+  --r-tool: 4px;
+
+  /* Motion */
+  --m-fast: 120ms;
+  --m-base: 180ms;
+  --m-sheet: 240ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* The pinned save bar on phones: a 44px button inside 12px padding. */
+  --bar-h: calc(44px + 2 * var(--s-3) + 1px);
+}
+
+/* Night desk */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --desk: #151b23;
+    --ticket: #1f2731;
+    --ink: #e7ecf2;
+    --ink-muted: #9aa7b6;
+    --print: #93adf5;
+    --gain: #43c08f;
+    --loss: #f27a64;
+    --rule-field: #6f7e90;
+    --rule: #334050;
+    --on-print: var(--desk);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-bottom: var(--bar-h);
 }
 
 body {
   margin: 0;
-}
-
-main {
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
-
-h1 {
-  margin: 0 0 0.5rem;
-  font-size: 1.75rem;
+  background: var(--desk);
+  color: var(--ink);
+  font: var(--t-body);
+  font-stretch: var(--w-normal);
+  -webkit-text-size-adjust: 100%;
 }
 
 p {
   margin: 0;
 }
 
+:focus-visible {
+  outline: 2px solid var(--print);
+  outline-offset: 2px;
+}
+
+/* Signed-out, loading and error pages */
+.page {
+  max-width: 40rem;
+  padding: var(--s-6) var(--s-3);
+}
+
+.page h1 {
+  margin: 0 0 var(--s-3);
+  font: var(--t-heading);
+  font-stretch: var(--w-normal);
+}
+
+.page p + .btn {
+  margin-top: var(--s-4);
+}
+
 @media (min-width: 640px) {
-  main {
-    padding-top: 4rem;
-  }
-
-  h1 {
-    font-size: 2.25rem;
+  .page {
+    padding: var(--s-12) var(--s-6);
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f9fafb;
-    background: #111827;
-  }
-}
-
-button {
-  min-height: 2.75rem;
-  margin-top: 1rem;
-  padding: 0.5rem 1.25rem;
-  font: inherit;
+/* Buttons */
+.btn {
+  min-height: 44px;
+  padding: 0 var(--s-4);
+  border: 1px solid transparent;
+  border-radius: var(--r-tool);
+  background: transparent;
+  color: var(--ink);
+  font: var(--t-body);
+  font-stretch: var(--w-normal);
   cursor: pointer;
+  transition: filter var(--m-fast) var(--ease-out);
+}
+
+.btn:hover {
+  filter: brightness(0.94);
+}
+
+.btn:active {
+  filter: brightness(0.86);
+}
+
+.btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
+  filter: none;
+}
+
+.btn--primary {
+  padding: 0 var(--s-6);
+  background: var(--print);
+  color: var(--on-print);
+  font: var(--t-value);
+  font-stretch: var(--w-normal);
+}
+
+.btn--secondary {
+  border-color: var(--rule-field);
+}
+
+.btn--quiet {
+  color: var(--print);
+}
+
+/* Signed-in shell */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--s-1) var(--s-3);
+}
+
+.topbar__brand {
+  font: var(--t-title);
+  font-stretch: var(--w-normal);
+}
+
+.screen {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: var(--s-3) var(--s-3) calc(var(--bar-h) + var(--s-4));
+}
+
+@media (min-width: 640px) {
+  .topbar {
+    padding-inline: var(--s-6);
+  }
+
+  .screen {
+    padding: var(--s-4) var(--s-6) var(--s-12);
+  }
+}
+
+/* Ticket */
+.trade-form {
+  max-width: 40rem;
+}
+
+.ticket {
+  overflow: hidden;
+  border-radius: var(--r-ticket);
+  background: var(--ticket);
+}
+
+.ticket__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--rule);
+}
+
+.ticket__title {
+  margin: 0;
+  font: var(--t-title);
+  font-stretch: var(--w-normal);
+}
+
+.ticket__meta {
+  color: var(--ink-muted);
+  font: var(--t-small);
+  font-stretch: var(--w-small);
+}
+
+.ticket__meta--open {
+  color: var(--print);
+}
+
+/* The cells share their rules: the gaps show the grid's --rule background. */
+.ticket__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+}
+
+/* Field cell */
+.cell {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 0;
+  background: var(--ticket);
+}
+
+.cell__label {
+  display: block;
+  margin-bottom: var(--s-1);
+  color: var(--print);
+  font: var(--t-label);
+  font-stretch: var(--w-label);
+}
+
+.cell__control {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-1);
+  box-shadow: 0 1px 0 var(--rule-field);
+}
+
+.cell__input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: var(--t-value);
+  font-stretch: var(--w-value);
+  font-variant-numeric: tabular-nums lining-nums;
+  appearance: none;
+  text-align: left;
+}
+
+.cell__input::placeholder {
+  color: var(--ink-muted);
+  opacity: 1;
+}
+
+.cell__input:focus-visible {
+  outline: none;
+}
+
+.cell__input--time {
+  min-height: 1.5rem;
+}
+
+.cell__input--notes {
+  display: block;
+  resize: vertical;
+  font: var(--t-body);
+  font-stretch: var(--w-normal);
+}
+
+.cell__affix {
+  color: var(--ink-muted);
+  font: var(--t-small);
+  font-stretch: var(--w-small);
+}
+
+.cell__error {
+  margin-top: var(--s-1);
+  color: var(--loss);
+  font: var(--t-small);
+  font-stretch: var(--w-small);
+}
+
+.cell:has(.cell__input:focus-visible) {
+  z-index: 1;
+  outline: 2px solid var(--print);
+  outline-offset: -2px;
+}
+
+.cell:has(.cell__input:focus-visible) .cell__control {
+  box-shadow: 0 2px 0 var(--print);
+}
+
+.cell[data-invalid] .cell__control,
+.cell[data-invalid]:has(.cell__input:focus-visible) .cell__control {
+  box-shadow: 0 2px 0 var(--loss);
+}
+
+/* Placeholders that keep the grid even; they hold nothing. */
+.cell--spacer,
+.cell--filler {
+  display: none;
+}
+
+.cell--notes {
+  grid-column: 1 / -1;
+}
+
+/* Segmented radio toggle (side, type). No colour: it is a glyph and a word. */
+.segmented {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  min-height: 44px;
+  border: 1px solid var(--rule-field);
+  border-radius: var(--r-tool);
+}
+
+.segmented__option {
+  position: relative;
+  display: flex;
+  cursor: pointer;
+}
+
+.segmented__option + .segmented__option {
+  border-left: 1px solid var(--rule-field);
+}
+
+.segmented__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segmented__face {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  padding: 0 var(--s-2);
+  color: var(--ink);
+  font: var(--t-label);
+  font-stretch: var(--w-label);
+  white-space: nowrap;
+  transition:
+    background-color var(--m-fast) var(--ease-out),
+    color var(--m-fast) var(--ease-out);
+}
+
+.segmented__option:first-child .segmented__face {
+  border-radius: 3px 0 0 3px;
+}
+
+.segmented__option:last-child .segmented__face {
+  border-radius: 0 3px 3px 0;
+}
+
+.segmented__input:checked + .segmented__face {
+  background: var(--ink);
+  color: var(--ticket);
+}
+
+.segmented__input:focus-visible + .segmented__face {
+  outline: 2px solid var(--print);
+  outline-offset: 2px;
+}
+
+/* Result strip, under the ticket's double rule */
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-6);
+  padding: var(--s-3) var(--s-4);
+  border-top: 3px double var(--ink);
+}
+
+.strip__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+
+.strip__item--net {
+  margin-right: auto;
+}
+
+.strip__label {
+  color: var(--print);
+  font: var(--t-label);
+  font-stretch: var(--w-label);
+}
+
+.strip__value {
+  color: var(--ink);
+  font: var(--t-value);
+  font-stretch: var(--w-value);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+.strip__item--risk .strip__value {
+  color: var(--ink-muted);
+}
+
+.strip__item--net .strip__value {
+  font: var(--t-figure-s);
+  font-stretch: var(--w-figure);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.strip__value[data-tone='gain'] {
+  color: var(--gain);
+}
+
+.strip__value[data-tone='loss'] {
+  color: var(--loss);
+}
+
+.strip__value[data-tone='muted'] {
+  color: var(--ink-muted);
+}
+
+/* The R figure carries its own R, so its label is spoken, not shown. */
+.strip__item--r .strip__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Alert and actions */
+.alert {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--loss);
+  border-radius: var(--r-tool);
+  background: var(--ticket);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  margin-top: var(--s-4);
+}
+
+.actions__hint {
+  display: none;
+  color: var(--ink-muted);
+  font: var(--t-small);
+  font-stretch: var(--w-small);
+}
+
+/* Toast: a small ticket naming what just happened */
+.toast-region {
+  position: fixed;
+  inset-inline: 0;
+  bottom: calc(var(--bar-h) + var(--s-3));
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  padding-inline: var(--s-3);
+  pointer-events: none;
+}
+
+.toast {
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-ticket);
+  background: var(--ticket);
+  color: var(--ink);
+  font: var(--t-body);
+  font-stretch: var(--w-normal);
+  pointer-events: auto;
+  animation: toast-in var(--m-base) var(--ease-out);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Phone: the save button sits in a bar pinned to the bottom. */
+@media (max-width: 639px) {
+  .actions {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 10;
+    margin: 0;
+    padding: var(--s-3);
+    border-top: 1px solid var(--rule);
+    background: var(--ticket);
+  }
+
+  .actions .btn {
+    flex: 1;
+  }
+}
+
+/* A date and time doesn't fit in half a phone, so each takes its own row. */
+@media (max-width: 639px) {
+  .cell--time {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 359px) {
+  .cell--type,
+  .cell--side {
+    grid-column: 1 / -1;
+  }
+}
+
+/* A stock has no point value, so at two columns the symbol takes the row. */
+@media (max-width: 1023px) {
+  .cell--span-sm {
+    grid-column: span 2;
+  }
+}
+
+/* Tablet and up */
+@media (min-width: 640px) {
+  .strip__value {
+    font: var(--t-figure-s);
+    font-stretch: var(--w-figure);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  .strip__item--risk .strip__value {
+    font: var(--t-value);
+    font-stretch: var(--w-value);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  .toast-region {
+    bottom: var(--s-6);
+    justify-content: flex-start;
+    padding-inline: var(--s-6);
+  }
+}
+
+/* Desktop: four cells across, the main layout */
+@media (min-width: 1024px) {
+  .trade-form {
+    max-width: 56rem;
+  }
+
+  .ticket__grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .strip__item--net .strip__value {
+    font: var(--t-figure);
+    font-stretch: var(--w-figure);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  .cell--time,
+  .cell--filler {
+    grid-column: span 2;
+  }
+
+  .cell--spacer {
+    display: block;
+  }
+
+  .cell--filler {
+    display: block;
+  }
+
+  .actions__hint {
+    display: inline;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .segmented__face {
+    transition: none;
+  }
+
+  .toast {
+    animation: none;
+  }
 }

@@ -30,7 +30,7 @@ function App({ load = loadConfig }: { load?: () => Promise<AppConfig> }) {
 
   if (state.status === 'loading') {
     return (
-      <main>
+      <main className="page">
         <p>Loading…</p>
       </main>
     );
@@ -38,7 +38,7 @@ function App({ load = loadConfig }: { load?: () => Promise<AppConfig> }) {
 
   if (state.status === 'error') {
     return (
-      <main>
+      <main className="page">
         <h1>Trade Journal</h1>
         <p role="alert">{CONFIG_ERROR_MESSAGE}</p>
       </main>

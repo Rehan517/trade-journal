@@ -51,14 +51,17 @@ describe('AuthView', () => {
     expect(signinRedirect).toHaveBeenCalledOnce();
   });
 
-  it('shows the email and Sign out when signed in', () => {
+  it('shows the top bar, Sign out and the trade form when signed in', () => {
     mockAuth({
       isAuthenticated: true,
       user: { profile: { email: 'me@example.com' } },
     });
     render(<AuthView config={config} />);
-    expect(screen.getByText('Signed in as me@example.com')).toBeTruthy();
+    expect(screen.getByText('Trade Journal')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'New trade' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save trade' })).toBeTruthy();
+    expect(screen.queryByText(/Token user ID/)).toBeNull();
   });
 
   it('shows the error and Try again', () => {
@@ -111,7 +114,7 @@ describe('AuthView', () => {
       error: new Error('refresh failed'),
     });
     render(<AuthView config={config} />);
-    expect(screen.getByText('Signed in as me@example.com')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'New trade' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
   });
 
@@ -133,138 +136,13 @@ describe('AuthView', () => {
   });
 });
 
-describe('AuthView API call', () => {
-  const signedIn = (token = 'tok') => ({
-    isAuthenticated: true,
-    user: {
-      access_token: token,
-      profile: { email: 'me@example.com', sub: 'sub-1' },
-    },
-  });
-  const okFetch = () =>
-    vi.fn(() =>
-      Promise.resolve(new Response(JSON.stringify({ userId: 'sub-1' }))),
-    ) as unknown as typeof fetch;
-
-  it('shows Calling API… then the API and token user IDs', async () => {
-    mockAuth(signedIn());
-    const fetchFn = okFetch();
-    render(<AuthView config={config} fetchFn={fetchFn} />);
-    expect(screen.getByText('Calling API…')).toBeTruthy();
-    await waitFor(() =>
-      expect(screen.getByText('API user ID: sub-1')).toBeTruthy(),
-    );
-    expect(screen.getByText('Token user ID: sub-1')).toBeTruthy();
-    expect(fetchFn).toHaveBeenCalledOnce();
-    const [url, init] = vi.mocked(fetchFn).mock.calls[0]!;
-    expect(url).toBe(`${config.apiUrl}/me`);
-    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
-  });
-
-  it('does not call again on re-render with the same token', async () => {
-    mockAuth(signedIn());
-    const fetchFn = okFetch();
-    const { rerender } = render(<AuthView config={config} fetchFn={fetchFn} />);
-    await waitFor(() => screen.getByText('API user ID: sub-1'));
-    rerender(<AuthView config={config} fetchFn={fetchFn} />);
-    expect(fetchFn).toHaveBeenCalledOnce();
-  });
-
-  it('shows the status on failure and Retry calls again', async () => {
-    mockAuth(signedIn());
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValueOnce(new Response('{}', { status: 401 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ userId: 'sub-1' })),
-      ) as unknown as typeof fetch;
-    render(<AuthView config={config} fetchFn={fetchFn} />);
-    await waitFor(() =>
-      expect(screen.getByText('API call failed: 401')).toBeTruthy(),
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => screen.getByText('API user ID: sub-1'));
-    expect(fetchFn).toHaveBeenCalledTimes(2);
-  });
-
-  it('shows a network error the same way', async () => {
-    mockAuth(signedIn());
-    const fetchFn = vi.fn(() =>
-      Promise.reject(new TypeError('Failed to fetch')),
-    ) as unknown as typeof fetch;
-    render(<AuthView config={config} fetchFn={fetchFn} />);
-    await waitFor(() =>
-      expect(screen.getByText('API call failed: network error')).toBeTruthy(),
-    );
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
-  });
-
-  it('shows invalid response for a schema-invalid body', async () => {
-    mockAuth(signedIn());
-    const fetchFn = vi.fn(() =>
-      Promise.resolve(new Response('{"nope":1}')),
-    ) as unknown as typeof fetch;
-    render(<AuthView config={config} fetchFn={fetchFn} />);
-    await waitFor(() =>
-      expect(
-        screen.getByText('API call failed: invalid response'),
-      ).toBeTruthy(),
-    );
-  });
-
-  // A request that never settles, so the test controls what happens next.
-  const pendingFetch = () =>
-    vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
-  const signalOf = (fetchFn: typeof fetch): AbortSignal => {
-    const init = vi.mocked(fetchFn).mock.calls[0]?.[1];
-    expect(init?.signal).toBeInstanceOf(AbortSignal);
-    return init!.signal!;
-  };
-
-  it('aborts the request on unmount', () => {
-    mockAuth(signedIn());
-    const fetchFn = pendingFetch();
-    const { unmount } = render(<AuthView config={config} fetchFn={fetchFn} />);
-    const signal = signalOf(fetchFn);
-    expect(signal.aborted).toBe(false);
-    unmount();
-    expect(signal.aborted).toBe(true);
-  });
-
-  it('aborts the request on sign-out and makes no new call', () => {
-    mockAuth(signedIn());
-    const fetchFn = pendingFetch();
-    const { rerender } = render(<AuthView config={config} fetchFn={fetchFn} />);
-    const signal = signalOf(fetchFn);
-    mockAuth({});
-    rerender(<AuthView config={config} fetchFn={fetchFn} />);
-    expect(signal.aborted).toBe(true);
-    expect(fetchFn).toHaveBeenCalledOnce();
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
-  });
-
-  it('ignores a result that settles after sign-out', async () => {
-    mockAuth(signedIn());
-    let resolve!: (r: Response) => void;
-    const fetchFn = vi.fn(
-      () => new Promise<Response>((r) => (resolve = r)),
-    ) as unknown as typeof fetch;
-    const { rerender } = render(<AuthView config={config} fetchFn={fetchFn} />);
-    mockAuth({});
-    rerender(<AuthView config={config} fetchFn={fetchFn} />);
-    resolve(new Response(JSON.stringify({ userId: 'sub-1' })));
-    // Signed back in with a new token: the stale result must not show up
-    // before the new request settles.
-    mockAuth(signedIn('tok-2'));
-    rerender(<AuthView config={config} fetchFn={fetchFn} />);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByText('API user ID: sub-1')).toBeNull();
-    expect(screen.getByText('Calling API…')).toBeTruthy();
-  });
-
-  it('does not call the API when signed out', () => {
-    mockAuth({});
-    const fetchFn = okFetch();
+describe('AuthView signed in', () => {
+  it('makes no API call just by showing the form', () => {
+    mockAuth({
+      isAuthenticated: true,
+      user: { access_token: 'tok', profile: { sub: 'sub-1' } },
+    });
+    const fetchFn = vi.fn() as unknown as typeof fetch;
     render(<AuthView config={config} fetchFn={fetchFn} />);
     expect(fetchFn).not.toHaveBeenCalled();
   });
