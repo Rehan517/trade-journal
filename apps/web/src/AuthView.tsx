@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { buildLogoutUrl, clearAuthParams } from './auth.ts';
 import type { AppConfig } from './config.ts';
+import { CalendarPage } from './CalendarPage.tsx';
 import { Toast } from './FormParts.tsx';
 import { TradeDialog } from './TradeDialog.tsx';
 
@@ -21,8 +22,13 @@ export function AuthView({
   // The button that opened the dialog. Safari doesn't focus a clicked
   // button, so the dialog can't rely on `document.activeElement`.
   const [opener, setOpener] = useState<HTMLElement | null>(null);
-  const openDialog = (button: HTMLElement) => {
+  // Entry time for the dialog's next open; undefined means now.
+  const [initialOpenedAt, setInitialOpenedAt] = useState<string>();
+  // Bumped after a save, so the calendar fetches the month on screen again.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const openDialog = (button: HTMLElement, openedAt?: string) => {
     setOpener(button);
+    setInitialOpenedAt(openedAt);
     setDialogOpen(true);
   };
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
@@ -103,25 +109,26 @@ export function AuthView({
           </div>
         </header>
         <main className="home">
-          <h1 className="home__title">Your trades</h1>
-          <p className="home__text">Log a trade to start your journal.</p>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={(e) => openDialog(e.currentTarget)}
-          >
-            Log a trade
-          </button>
+          <CalendarPage
+            apiUrl={config.apiUrl}
+            accessToken={auth.user?.access_token}
+            onSignIn={() => void auth.signinRedirect()}
+            fetchFn={fetchFn}
+            onLogTrade={(openedAt, button) => openDialog(button, openedAt)}
+            refreshKey={refreshKey}
+          />
         </main>
         <TradeDialog
           open={dialogOpen}
           returnFocusTo={opener}
+          initialOpenedAt={initialOpenedAt}
           apiUrl={config.apiUrl}
           accessToken={auth.user?.access_token}
           onSignIn={() => void auth.signinRedirect()}
           fetchFn={fetchFn}
           onClose={() => setDialogOpen(false)}
           onSaved={() => {
+            setRefreshKey((k) => k + 1);
             toastId.current += 1;
             setToast({ id: toastId.current, message: 'Trade saved' });
           }}

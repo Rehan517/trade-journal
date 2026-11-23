@@ -1,9 +1,11 @@
 import {
   ErrorBodySchema,
+  ListTradesResponseSchema,
   MeResponseSchema,
   TradeViewSchema,
   type CreateTradeRequestInput,
   type ErrorBody,
+  type ListTradesResponse,
   type MeResponse,
   type TradeView,
 } from '@trade-journal/shared';
@@ -101,6 +103,69 @@ export async function createTrade(
       INVALID_RESPONSE_STATUS,
       `Response is invalid: ${parsed.error.message}`,
     );
+  }
+  return parsed.data;
+}
+
+const SIGNED_DECIMAL = /^-?\d+(\.\d+)?$/;
+
+export interface ListTradesParams {
+  /** Inclusive lower bound on `openedAt`, UTC ISO 8601. */
+  from?: string;
+  /** Exclusive upper bound on `openedAt`, UTC ISO 8601. */
+  to?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+/**
+ * GET /trades with an optional `openedAt` range. Resolves with one page whose
+ * body parses as a `ListTradesResponse`. Any status but 200 throws an
+ * `ApiError` with that status; a 200 with a bad body throws status 0.
+ */
+export async function listTrades(
+  apiUrl: string,
+  accessToken: string,
+  params: ListTradesParams = {},
+  fetchFn: typeof fetch = (...args) => fetch(...args),
+  signal?: AbortSignal,
+): Promise<ListTradesResponse> {
+  const query = new URLSearchParams();
+  if (params.from !== undefined) query.set('from', params.from);
+  if (params.to !== undefined) query.set('to', params.to);
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.cursor !== undefined) query.set('cursor', params.cursor);
+  const qs = query.toString();
+  const search = qs ? `?${qs}` : '';
+  const response = await fetchFn(`${apiUrl}/trades${search}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+  });
+  if (response.status !== 200) throw new ApiError(response.status);
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    throw new ApiError(INVALID_RESPONSE_STATUS, 'Response is not valid JSON');
+  }
+  const parsed = ListTradesResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new ApiError(
+      INVALID_RESPONSE_STATUS,
+      `Response is invalid: ${parsed.error.message}`,
+    );
+  }
+  // The calendar does exact maths on every net P&L, so a malformed one is a
+  // bad response here, not a crash at render time.
+  for (const trade of parsed.data.items) {
+    const net = trade.metrics.netPnl;
+    if (net !== undefined && !SIGNED_DECIMAL.test(net)) {
+      throw new ApiError(
+        INVALID_RESPONSE_STATUS,
+        'Response is invalid: a trade has a malformed netPnl',
+      );
+    }
   }
   return parsed.data;
 }

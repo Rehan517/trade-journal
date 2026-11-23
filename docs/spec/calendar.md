@@ -65,7 +65,16 @@ look. Building it for real needs these too:
    day view exists (#13).
 8. **The calendar refetches after a save**, rather than adding the returned
    trade locally. One source of truth, and the month is one or two
-   requests.
+   requests. A same-month refetch keeps the current figures on screen until
+   the new ones arrive.
+9. **Today follows the clock.** The page re-reads the time at New York
+   midnight, and when the tab becomes visible or focused again (timers
+   pause while a device sleeps), so a tab left open overnight moves today
+   on. The month shown doesn't change by itself.
+10. **Results are judged at the cent.** A day's outcome, its shading, the
+    green and red day counts, and best and worst use the net rounded to
+    cents, the number the trader sees. Sums stay exact. A day whose net
+    rounds to $0.00 is breakeven.
 
 ## Top bar
 
@@ -137,8 +146,9 @@ buildMonth(trades: TradeView[], year: number, month: number, today: NyDate): Mon
 - **Days** outside the month are placeholders: no trades are loaded for
   them, they're disabled, and they don't count anywhere.
 - **Day:** `net` = exact sum of `metrics.netPnl` of its closed trades;
-  `closed` and `open` counts; `outcome` = gain (net > 0), loss (net < 0),
-  breakeven (net = 0, with closed trades) or none.
+  `closed` and `open` counts; `outcome` = gain (net > $0.00 at the cent),
+  loss (< $0.00), breakeven (rounds to $0.00, with closed trades) or none
+  (decision 10).
 - **Week:** sum and trade count of its days in the month. Week 1 of October
   2026 counts 1–4 October only.
 - **Month stats:**
@@ -151,10 +161,15 @@ buildMonth(trades: TradeView[], year: number, month: number, today: NyDate): Mon
 | Best day     | Largest gain day                             | Its date, "Oct 8"                                   |
 | Worst day    | Largest loss day                             | Its date, "Oct 9"                                   |
 
-- No closed trades: every value is "—". Net P&L's context line says "No
+- No trades at all: every value is "—". Net P&L's context line says "No
   trades in October. Log a trade." with "Log a trade" as a quiet button
-  that opens the dialog.
+  (44px hit area) that opens the dialog. The other context lines: "No
+  closed trades", "No trading days", "No winning days", "No losing days".
+- Only open trades: Trades shows its count; Net P&L, win rate, best and
+  worst are "—", and Net P&L's context line says "No closed trades yet".
 - No gain day: Best day is "—", "No winning days". Same for Worst day.
+- "Trading days" counts days with any trade, open ones included, and is
+  pluralised ("1 trading day").
 - The win rate's percentage is counts, not money, so it may use `number`.
 
 ### Shading
@@ -169,7 +184,8 @@ The shade step compares each day with the month's largest absolute day
 | otherwise               | 3    |
 
 So the biggest day of the month is always step 3, and a month with one
-trading day shades it at step 3. Gain days use `--gain-1/2/3` and loss days
+trading day shades it at step 3. Shading uses the net at the cent
+(decision 10), so a breakeven day is never shaded. Gain days use `--gain-1/2/3` and loss days
 `--loss-1/2/3`.
 
 ### Examples (unit tests)
@@ -204,8 +220,12 @@ October 2026  [‹] [›] [Today]                         Loss ■■■□■�
   Today returns to the current New York month. All three move without
   limits; future months just show future days.
 - Each day is a `<button>` with an `aria-label` reading the whole day
-  ([system.md](../design/system.md#calendar)). After-today and outside-month
-  days are `disabled`.
+  ([system.md](../design/system.md#calendar)). A day with both reads "Oct
+  8: +$640.59, 5 trades, 1 open". Today has `aria-current="date"`.
+- Outside-month days are `disabled` ("Sep 28: outside this month"). Days
+  after today are `disabled` ("Oct 20: not yet") unless they hold trades:
+  a future-dated trade still counts in the totals, so its day shows its
+  amount and stays clickable like a past day.
 - The calendar panel is a `<section>` labelled "Daily profit and loss".
 
 ### Loading
@@ -219,9 +239,16 @@ absent, so a busy month loads in full.
   (`AbortController`), so a slow September can't overwrite October.
 - At most 50 pages (5,000 trades) per month. Past that, the error state
   shows; nobody logs that much by hand.
-- While loading, the grid shows with no amounts and stats show "—";
-  `aria-busy="true"` on the panel. The previous month's figures are never
-  shown under the new month's title.
+- While a month first loads, the grid shows with no amounts and stats show
+  "—"; `aria-busy="true"` on the panel. The previous month's figures are
+  never shown under the new month's title.
+- "Loading…" is announced through one persistent `role="status"` element
+  outside the busy panel, whose text changes.
+- An error belongs to the request that failed, so coming back to a month
+  that failed earlier shows the loading state, not the old alert.
+- Each `metrics.netPnl` is checked as a decimal string when the page
+  arrives; a malformed one is treated as a bad body (Retry), never a
+  crash.
 
 ### Errors
 
@@ -240,17 +267,24 @@ belongs to another month, the calendar stays where it is.
 
 ## Phone
 
-Below 640px:
+Below 640px, and whenever the calendar panel is narrower than 1140px (a
+container query, so tablets and half-width windows never scroll sideways
+either):
 
-- **Stat cards:** `repeat(auto-fit, minmax(140px, 1fr))`, so two across at
-  375px.
+- **Stat cards:** the same `minmax(150px, 1fr)` grid, so two across at
+  375px, with the value scaled to fit its card
+  ([system.md](../design/system.md#stat-card)).
 - **Grid:** 7 equal columns, 4px gaps, panel padding 8px. Weekday headers
   are single letters (`M T W T F S S`) inside `<abbr>` with the full name.
 - **Day cells:** min height 64px, 6px padding. The day number (12px), and
   for traded days a compact amount: sign and whole dollars below 1,000
-  (`+334`, `−56`), else thousands to one decimal (`+1.3k`), and above
-  10,000 whole thousands (`+13k`). No `$` and no trade count, so it fits a
-  35px column at 320px. The `aria-label` still reads the exact amount.
+  (`+334`, `−56`), else thousands to one decimal (`+1.3k`, with a trailing
+  `.0` dropped: `+2k`), and above 10,000 whole thousands (`+13k`).
+  Rounding is half away from zero; a value that rounds to zero cents reads
+  `0`. No `$` and no trade count, so it fits a 35px column at 320px. The
+  `aria-label` still reads the exact amount.
+- **Today:** the badge is hidden, so a 6px `--ink` dot sits beside the day
+  number (the `--today` ring alone is too faint on the darkest shades).
 - **Week totals** move below the grid as a list: "Week 2 · +$1,002.55 · 17
   trades", one row each.
 - Nothing scrolls sideways at 320px or at 200% zoom.

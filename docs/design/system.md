@@ -294,8 +294,11 @@ the result uses the same verb: "Save trade" gives "Trade saved" (kept).
 - `--surface`, 1px `--line` border, 12px radius.
 - The context line gives the count behind the number, so a 100% win rate
   on one day looks like what it is (kept).
-- Cards sit in a grid of `repeat(auto-fit, minmax(190px, 1fr))` with a 12px
-  gap: five across on desktop, wrapping to two or one on phone.
+- Cards sit in a grid of `repeat(auto-fit, minmax(150px, 1fr))` with a 12px
+  gap: five across on desktop and tablet, two on a phone.
+- Each card is a size container, and its value is
+  `clamp(14px, 13cqi, 22px)`: 22px when there's room, smaller in a narrow
+  card, so a figure like `+$13,082.44` never breaks mid-number.
 - Empty: the value is "—" in `--ink` and the context line says what to do.
 
 ### Calendar
@@ -315,16 +318,17 @@ Gaps are 6px. A header row of `--t-caps` weekday names.
 └──────────────┘
 ```
 
-| State             | Background                                                                | Day number    | Content                   |
-| ----------------- | ------------------------------------------------------------------------- | ------------- | ------------------------- |
-| Traded, gain      | `--gain-1/2/3`                                                            | white at 88%  | Amount and trade count    |
-| Traded, loss      | `--loss-1/2/3`                                                            | white at 88%  | Amount and trade count    |
-| Breakeven         | `--cell`                                                                  | `--ink`       | `$0.00` and trade count   |
-| Open trades only  | `--cell`                                                                  | `--ink`       | "1 open" in `--ink-muted` |
-| No trades         | `--cell`                                                                  | `--ink`       | Empty                     |
-| After today       | `--cell-future`                                                           | `--ink-faint` | Empty, disabled           |
-| Outside the month | `--cell-off`                                                              | `#3A4350`     | Empty, disabled           |
-| Today (any state) | as above, plus a 2px inset `--today` ring and an `--accent` "Today" badge |               |                           |
+| State                    | Background                                                                                                                         | Day number    | Content                   |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------- | ------------------------- |
+| Traded, gain             | `--gain-1/2/3`                                                                                                                     | white at 88%  | Amount and trade count    |
+| Traded, loss             | `--loss-1/2/3`                                                                                                                     | white at 88%  | Amount and trade count    |
+| Breakeven                | `--cell`                                                                                                                           | `--ink`       | `$0.00` and trade count   |
+| Open trades only         | `--cell`                                                                                                                           | `--ink`       | "1 open" in `--ink-muted` |
+| No trades                | `--cell`                                                                                                                           | `--ink`       | Empty                     |
+| After today              | `--cell-future`                                                                                                                    | `--ink-faint` | Empty, disabled           |
+| After today, with trades | as Traded                                                                                                                          | white at 88%  | Amount and trade count    |
+| Outside the month        | `--cell-off`                                                                                                                       | `#3A4350`     | Empty, disabled           |
+| Today (any state)        | as above, plus a 2px inset `--today` ring and an `--accent` "Today" badge (compact layout: a 6px `--ink` dot instead of the badge) |               |                           |
 
 - Hover brightens the cell (`filter: brightness(1.2)`), 120ms. No movement.
 - The cell's `aria-label` reads the whole day: "Oct 8: +$640.59, 5

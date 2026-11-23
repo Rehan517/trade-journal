@@ -17,18 +17,27 @@ function fixed2(exact: string): {
 
 export type Tone = 'gain' | 'loss' | 'neutral';
 
-/** `+$98.76`, `−$21.62`, `$0.00`. Zero after rounding has no sign. */
+/** Thousands separators on the whole part of a money amount: `3,805.49`. */
+function grouped(abs: string): string {
+  const [whole = '', fraction] = abs.split('.');
+  const withCommas = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return fraction === undefined ? withCommas : `${withCommas}.${fraction}`;
+}
+
+/** `+$98.76`, `−$3,805.49`, `$0.00`. Zero after rounding has no sign. */
 export function formatMoney(exact: string): { text: string; tone: Tone } {
-  const { negative, zero, abs } = fixed2(exact);
+  const fixed = fixed2(exact);
+  const { negative, zero } = fixed;
+  const abs = grouped(fixed.abs);
   if (zero) return { text: `$${abs}`, tone: 'neutral' };
   return negative
     ? { text: `${MINUS}$${abs}`, tone: 'loss' }
     : { text: `+$${abs}`, tone: 'gain' };
 }
 
-/** An unsigned amount such as the planned risk: `$50.00`. */
+/** An unsigned amount such as the planned risk: `$1,250.00`. */
 export function formatAmount(exact: string): string {
-  return `$${fixed2(exact).abs}`;
+  return `$${grouped(fixed2(exact).abs)}`;
 }
 
 /** `+1.98 R` with a narrow no-break space before the R. */

@@ -35,6 +35,20 @@ function mockAuth(value: Record<string, unknown>) {
   } as unknown as ReturnType<typeof useAuth>);
 }
 
+/** A fetch that answers `GET /trades` with an empty page, and nothing else. */
+function emptyMonthFetch() {
+  return vi.fn(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ items: [] }), { status: 200 }),
+    ),
+  ) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+}
+
+const signedIn = {
+  isAuthenticated: true,
+  user: { access_token: 'tok', profile: { email: 'me@example.com' } },
+};
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -51,12 +65,9 @@ describe('AuthView', () => {
     expect(signinRedirect).toHaveBeenCalledOnce();
   });
 
-  it('shows the top bar, Sign out and the empty home when signed in', () => {
-    mockAuth({
-      isAuthenticated: true,
-      user: { profile: { email: 'me@example.com' } },
-    });
-    render(<AuthView config={config} />);
+  it('shows the top bar, Sign out and the empty calendar when signed in', async () => {
+    mockAuth(signedIn);
+    render(<AuthView config={config} fetchFn={emptyMonthFetch()} />);
     expect(screen.getByText('Trade Journal')).toBeTruthy();
     expect(
       screen
@@ -65,25 +76,24 @@ describe('AuthView', () => {
     ).toBe('page');
     expect(screen.getByRole('button', { name: 'New trade' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Your trades' })).toBeTruthy();
-    expect(screen.getByText('Log a trade to start your journal.')).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { level: 1, name: /^[A-Z][a-z]+ \d{4}$/ }),
+    ).toBeTruthy();
+    expect(await screen.findByText(/No trades in/)).toBeTruthy();
     // The form is in a dialog that isn't open yet.
     expect(screen.queryByRole('button', { name: 'Save trade' })).toBeNull();
     expect(screen.queryByText(/Token user ID/)).toBeNull();
   });
 
-  it('opens the New trade dialog from the top bar and from the empty state', () => {
-    mockAuth({
-      isAuthenticated: true,
-      user: { profile: { email: 'me@example.com' } },
-    });
-    render(<AuthView config={config} />);
+  it('opens the New trade dialog from the top bar and from the empty month', async () => {
+    mockAuth(signedIn);
+    render(<AuthView config={config} fetchFn={emptyMonthFetch()} />);
     fireEvent.click(screen.getByRole('button', { name: 'New trade' }));
     expect(screen.getByRole('heading', { name: 'New trade' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Save trade' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('button', { name: 'Save trade' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Log a trade' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Log a trade' }));
     expect(screen.getByRole('button', { name: 'Save trade' })).toBeTruthy();
   });
 
@@ -137,7 +147,7 @@ describe('AuthView', () => {
       error: new Error('refresh failed'),
     });
     render(<AuthView config={config} />);
-    expect(screen.getByRole('heading', { name: 'Your trades' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1 })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
   });
 
@@ -165,28 +175,36 @@ describe('AuthView signed in', () => {
       isAuthenticated: true,
       user: { access_token: 'tok', profile: { sub: 'sub-1' } },
     });
-    const fetchFn = vi.fn(() =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify({
-            id: '3f0c1c52-6a3a-4f0e-9d0c-8a8f4f3b7a11',
-            symbol: 'AAPL',
-            instrumentType: 'stock',
-            side: 'long',
-            quantity: '1',
-            entryPrice: '5',
-            openedAt: '2026-11-19T14:30:00.000Z',
-            fees: '0',
-            createdAt: '2026-11-19T14:31:00.000Z',
-            updatedAt: '2026-11-19T14:31:00.000Z',
-            metrics: {},
-          }),
-          { status: 201 },
-        ),
-      ),
-    ) as unknown as typeof fetch;
+    // The month is empty until the trade is saved, then holds that trade.
+    const saved = {
+      id: '3f0c1c52-6a3a-4f0e-9d0c-8a8f4f3b7a11',
+      symbol: 'AAPL',
+      instrumentType: 'stock',
+      side: 'long',
+      quantity: '1',
+      entryPrice: '5',
+      openedAt: new Date().toISOString(),
+      fees: '0',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      metrics: {},
+    };
+    let didSave = false;
+    const fetchFn = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        didSave = true;
+        return Promise.resolve(
+          new Response(JSON.stringify(saved), { status: 201 }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ items: didSave ? [saved] : [] }), {
+          status: 200,
+        }),
+      );
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
     render(<AuthView config={config} fetchFn={fetchFn} />);
-    const opener = screen.getByRole('button', { name: 'Log a trade' });
+    const opener = await screen.findByRole('button', { name: 'Log a trade' });
     fireEvent.click(opener);
     fireEvent.change(screen.getByLabelText('Symbol'), {
       target: { value: 'AAPL' },
@@ -199,18 +217,34 @@ describe('AuthView signed in', () => {
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
     expect(screen.queryByRole('button', { name: 'Save trade' })).toBeNull();
     expect(document.activeElement).toBe(opener);
+    // The calendar fetches the month again; the empty-month button goes with
+    // it, and focus moves to the month title instead of falling to the body.
+    await waitFor(() => {
+      const gets = vi
+        .mocked(fetchFn)
+        .mock.calls.filter(([, init]) => init?.method !== 'POST');
+      expect(gets).toHaveLength(2);
+      expect(opener.isConnected).toBe(false);
+    });
+    expect(document.activeElement).toBe(
+      screen.getByRole('heading', { level: 1 }),
+    );
   });
 
-  it('makes no API call just by showing the form', () => {
+  it('makes no save call just by showing the form', async () => {
     mockAuth({
       isAuthenticated: true,
       user: { access_token: 'tok', profile: { sub: 'sub-1' } },
     });
-    const fetchFn = vi.fn() as unknown as typeof fetch;
+    const fetchFn = emptyMonthFetch();
     render(<AuthView config={config} fetchFn={fetchFn} />);
     fireEvent.click(screen.getByRole('button', { name: 'New trade' }));
     expect(screen.getByRole('dialog')).toBeTruthy();
-    expect(fetchFn).not.toHaveBeenCalled();
+    await screen.findByText(/No trades in/);
+    // The calendar's GET /trades is the only call.
+    for (const [, init] of vi.mocked(fetchFn).mock.calls) {
+      expect((init as RequestInit | undefined)?.method).toBe('GET');
+    }
   });
 });
 

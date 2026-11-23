@@ -18,6 +18,10 @@ describe('formatMoney', () => {
     ['0.83325', '+$0.83', 'gain'],
     ['-0.004', '$0.00', 'neutral'],
     ['-100.5', '\u2212$100.50', 'loss'],
+    ['999.995', '+$1,000.00', 'gain'],
+    ['3805.49', '+$3,805.49', 'gain'],
+    ['-2000', '\u2212$2,000.00', 'loss'],
+    ['1234567.891', '+$1,234,567.89', 'gain'],
   ])('%s -> %s', (exact, text, tone) => {
     expect(formatMoney(exact)).toEqual({ text, tone });
   });
@@ -34,6 +38,7 @@ describe('formatR and formatAmount', () => {
   });
   it('formats risk without a sign', () => {
     expect(formatAmount('50')).toBe('$50.00');
+    expect(formatAmount('1250')).toBe('$1,250.00');
   });
 });
 
