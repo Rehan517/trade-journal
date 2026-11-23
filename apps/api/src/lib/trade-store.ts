@@ -34,12 +34,15 @@ export interface TradeStore {
   /** Newest `openedAt` first. */
   list(
     userId: string,
-    options: { limit: number; startKey?: ListKey },
+    options: { limit: number; startKey?: ListKey; from?: string; to?: string },
   ): Promise<ListResult>;
 }
 
 /** A stored item that doesn't parse. A server bug, not a user error. */
 export class CorruptItemError extends Error {}
+
+/** The cursor is outside the requested date range. A client error. */
+export class InvalidCursorError extends Error {}
 
 export const userPk = (userId: string) => `USER#${userId}`;
 export const tradeSk = (id: string) => `TRADE#${id}`;
@@ -49,8 +52,24 @@ export const tradeSk = (id: string) => `TRADE#${id}`;
  * order matches time order and ties break by id.
  */
 export function openedAtKey(openedAt: string, id: string): string {
+  return `${paddedBound(openedAt)}#${id}`;
+}
+
+/** `openedAtKey` padding without the `#<id>` suffix, for range bounds. */
+export function paddedBound(openedAt: string): string {
   const [base = '', fraction = ''] = openedAt.slice(0, -1).split('.');
-  return `${base}.${fraction.padEnd(9, '0').slice(0, 9)}Z#${id}`;
+  return `${base}.${fraction.padEnd(9, '0').slice(0, 9)}Z`;
+}
+
+/**
+ * Whether an `openedAtKey` is in [from, to). The key condition's rule, used
+ * by both stores to check a cursor before querying.
+ */
+export function inDateRange(key: string, from?: string, to?: string): boolean {
+  return (
+    (from === undefined || key >= paddedBound(from)) &&
+    (to === undefined || key < paddedBound(to))
+  );
 }
 
 export function encodeCursor(key: ListKey): string {
@@ -154,21 +173,54 @@ export class DynamoTradeStore implements TradeStore {
 
   async list(
     userId: string,
-    options: { limit: number; startKey?: ListKey },
+    options: { limit: number; startKey?: ListKey; from?: string; to?: string },
   ): Promise<ListResult> {
     const pk = userPk(userId);
-    const res = await this.client().send(
-      new QueryCommand({
-        TableName: this.tableName(),
-        IndexName: 'byOpenedAt',
-        KeyConditionExpression: 'pk = :pk',
-        ExpressionAttributeValues: { ':pk': pk },
-        ScanIndexForward: false,
-        Limit: options.limit,
-        ConsistentRead: true,
-        ExclusiveStartKey: options.startKey && { ...options.startKey, pk },
-      }),
-    );
+    const { from, to } = options;
+    // Checked here so the 400 doesn't depend on DynamoDB's error wording.
+    if (
+      options.startKey &&
+      !inDateRange(options.startKey.openedAtKey, from, to)
+    ) {
+      throw new InvalidCursorError('cursor is outside the date range');
+    }
+    const values: Record<string, string> = { ':pk': pk };
+    let condition = 'pk = :pk';
+    if (from !== undefined && to !== undefined) {
+      condition += ' AND openedAtKey BETWEEN :from AND :to';
+    } else if (from !== undefined) {
+      condition += ' AND openedAtKey >= :from';
+    } else if (to !== undefined) {
+      condition += ' AND openedAtKey < :to';
+    }
+    if (from !== undefined) values[':from'] = paddedBound(from);
+    if (to !== undefined) values[':to'] = paddedBound(to);
+    let res;
+    try {
+      res = await this.client().send(
+        new QueryCommand({
+          TableName: this.tableName(),
+          IndexName: 'byOpenedAt',
+          KeyConditionExpression: condition,
+          ExpressionAttributeValues: values,
+          ScanIndexForward: false,
+          Limit: options.limit,
+          ConsistentRead: true,
+          ExclusiveStartKey: options.startKey && { ...options.startKey, pk },
+        }),
+      );
+    } catch (err) {
+      // Fallback for a start key DynamoDB rejects for another reason.
+      if (
+        options.startKey &&
+        err instanceof Error &&
+        err.name === 'ValidationException' &&
+        /starting key/i.test(err.message)
+      ) {
+        throw new InvalidCursorError('cursor is outside the date range');
+      }
+      throw err;
+    }
     const items = (res.Items ?? []).map(parseRecord);
     const last = res.LastEvaluatedKey;
     const lastKey = last

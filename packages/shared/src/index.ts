@@ -38,6 +38,7 @@ export {
   grossPnl,
   initialRisk,
   netPnl,
+  plannedRewardRisk,
   rMultiple,
   tradeOutcome,
 } from './trade-math.js';

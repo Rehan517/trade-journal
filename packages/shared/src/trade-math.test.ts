@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeTradeMetrics,
   grossPnl,
   initialRisk,
   netPnl,
+  plannedRewardRisk,
   rMultiple,
   tradeOutcome,
   type TradeMathInput,
@@ -284,5 +286,107 @@ describe('trade math edge cases', () => {
     expect(initialRisk(t)).toBe('50');
     expect(rMultiple(t)).toBe('-0.42');
     expect(tradeOutcome(t)).toBe('loss');
+  });
+});
+
+describe('plannedRewardRisk (examples L-R)', () => {
+  const A: TradeMathInput = {
+    instrumentType: 'future',
+    side: 'long',
+    quantity: '2',
+    pointValue: '5',
+    entryPrice: '5000',
+    exitPrice: '5010',
+    fees: '1.24',
+    plannedStop: '4995',
+  };
+  const B: TradeMathInput = {
+    instrumentType: 'future',
+    side: 'short',
+    quantity: '1',
+    pointValue: '2',
+    entryPrice: '18000.25',
+    exitPrice: '18010.75',
+    fees: '0.62',
+    plannedStop: '18010.25',
+  };
+  const C: TradeMathInput = {
+    instrumentType: 'stock',
+    side: 'long',
+    quantity: '10',
+    entryPrice: '187.50',
+    exitPrice: '190.00',
+  };
+  const D: TradeMathInput = {
+    instrumentType: 'stock',
+    side: 'short',
+    quantity: '100',
+    entryPrice: '250.50',
+    exitPrice: '248.25',
+    fees: '2',
+    plannedStop: '251.50',
+  };
+  const stock = (
+    plannedStop: string,
+    plannedTarget: string,
+  ): TradeMathInput => ({
+    instrumentType: 'stock',
+    side: 'long',
+    quantity: '1',
+    entryPrice: '100',
+    plannedStop,
+    plannedTarget,
+  });
+
+  it('L: Example A with target 5020 is 4.00', () => {
+    expect(plannedRewardRisk({ ...A, plannedTarget: '5020' })).toBe('4.00');
+  });
+  it('M: Example B with target 17985.25 (short) is 1.50', () => {
+    expect(plannedRewardRisk({ ...B, plannedTarget: '17985.25' })).toBe('1.50');
+  });
+  it('N: Example D with target 247.00 (short) is 3.50', () => {
+    expect(plannedRewardRisk({ ...D, plannedTarget: '247.00' })).toBe('3.50');
+  });
+  it('O: long @ 100, stop 97, target 101 is 0.33', () => {
+    expect(plannedRewardRisk(stock('97', '101'))).toBe('0.33');
+  });
+  it('P: long @ 100, stop 99, target 101.005 rounds up to 1.01', () => {
+    expect(plannedRewardRisk(stock('99', '101.005'))).toBe('1.01');
+  });
+  it('Q: Example A with no target is undefined', () => {
+    expect(plannedRewardRisk(A)).toBeUndefined();
+  });
+  it('R: Example C with a target but no stop is undefined', () => {
+    expect(plannedRewardRisk({ ...C, plannedTarget: '195' })).toBeUndefined();
+  });
+  it('does not need an exit, so an open trade has one', () => {
+    const open: TradeMathInput = { ...A, exitPrice: undefined };
+    expect(plannedRewardRisk({ ...open, plannedTarget: '5020' })).toBe('4.00');
+  });
+});
+
+describe('computeTradeMetrics plannedRewardRisk', () => {
+  const trade = {
+    id: '00000000-0000-4000-8000-000000000001',
+    symbol: 'MES',
+    instrumentType: 'future',
+    side: 'long',
+    quantity: '2',
+    pointValue: '5',
+    entryPrice: '5000',
+    exitPrice: '5010',
+    openedAt: '2026-11-19T01:30:00Z',
+    closedAt: '2026-11-19T02:00:00Z',
+    fees: '1.24',
+    plannedStop: '4995',
+  } as Parameters<typeof computeTradeMetrics>[0];
+
+  it('includes plannedRewardRisk when stop and target are set', () => {
+    const m = computeTradeMetrics({ ...trade, plannedTarget: '5020' });
+    expect(m.plannedRewardRisk).toBe('4.00');
+    expect(m.rMultiple).toBe('1.98');
+  });
+  it('omits the key without a target', () => {
+    expect(computeTradeMetrics(trade)).not.toHaveProperty('plannedRewardRisk');
   });
 });

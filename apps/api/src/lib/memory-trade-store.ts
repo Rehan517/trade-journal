@@ -1,4 +1,6 @@
 import {
+  InvalidCursorError,
+  inDateRange,
   openedAtKey,
   type ListKey,
   type ListResult,
@@ -28,7 +30,7 @@ export class MemoryTradeStore implements TradeStore {
 
   list(
     userId: string,
-    options: { limit: number; startKey?: ListKey },
+    options: { limit: number; startKey?: ListKey; from?: string; to?: string },
   ): Promise<ListResult> {
     const keyed = [...(this.byUser.get(userId)?.values() ?? [])]
       .map((record) => ({
@@ -40,10 +42,18 @@ export class MemoryTradeStore implements TradeStore {
       }))
       .sort((a, b) => (a.key.openedAtKey < b.key.openedAtKey ? 1 : -1));
 
+    const inRange = (key: string) => inDateRange(key, options.from, options.to);
+
     const { startKey } = options;
+    if (startKey && !inRange(startKey.openedAtKey)) {
+      return Promise.reject(
+        new InvalidCursorError('cursor is outside the date range'),
+      );
+    }
+    const ranged = keyed.filter((k) => inRange(k.key.openedAtKey));
     const rest = startKey
-      ? keyed.filter((k) => k.key.openedAtKey < startKey.openedAtKey)
-      : keyed;
+      ? ranged.filter((k) => k.key.openedAtKey < startKey.openedAtKey)
+      : ranged;
     const page = rest.slice(0, options.limit);
     const items = page.map((k) => structuredClone(k.record));
     // Like DynamoDB, a full page reports a key even if nothing follows.
