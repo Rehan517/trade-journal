@@ -1264,3 +1264,268 @@ p {
     animation: none;
   }
 }
+
+/* Trades page: table on desktop, cards on a phone */
+.trades {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-5);
+}
+
+.trades__title {
+  margin: 0;
+  font: var(--t-heading);
+  letter-spacing: -0.02em;
+}
+
+.alert.trades__alert {
+  margin: 0;
+}
+
+.trades__panel--empty {
+  border: 1px solid var(--line);
+  border-radius: var(--r-dialog);
+  background: var(--surface);
+}
+
+.trades__table {
+  display: none;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font: var(--t-body);
+}
+
+.trades__table th,
+.trades__table td {
+  height: 44px;
+  padding: 0 var(--s-2);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.trades__table th:first-child,
+.trades__table td:first-child {
+  padding-left: var(--s-4);
+}
+
+.trades__table th:last-child,
+.trades__table td:last-child {
+  padding-right: var(--s-4);
+}
+
+.trades__table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: var(--t-caps);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.trades__table th:first-child {
+  border-top-left-radius: var(--r-dialog);
+}
+
+.trades__table th:last-child {
+  border-top-right-radius: var(--r-dialog);
+}
+
+.trades__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.trades__table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.trades__table th.num {
+  font-family: var(--font-sans);
+}
+
+.trades__table td.trades__fig {
+  font: var(--t-week);
+  font-variant-numeric: tabular-nums;
+}
+
+.trades__symbol {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.trades__table td.trades__symbol {
+  white-space: normal;
+}
+
+.trades__table td.trades__qty {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.trades__fig[data-tone='gain'],
+.tcard__fig[data-tone='gain'] {
+  color: var(--gain);
+}
+
+.trades__fig[data-tone='loss'],
+.tcard__fig[data-tone='loss'] {
+  color: var(--loss);
+}
+
+.trades__fig[data-tone='muted'],
+.tcard__fig[data-tone='muted'] {
+  color: var(--ink-muted);
+}
+
+.badge {
+  font-weight: 600;
+}
+
+.badge--open {
+  color: var(--link);
+}
+
+.trades__closed {
+  color: var(--ink-muted);
+}
+
+.trades__table tbody tr:focus-visible,
+.tcard:focus-visible {
+  outline-offset: -2px;
+}
+
+.trades__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-4);
+  padding: var(--s-8) var(--s-6);
+  color: var(--ink-muted);
+}
+
+.trades__more {
+  align-self: center;
+}
+
+/* Cards: below 640px */
+.trades__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tcard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.tcard__line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.tcard__lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-2);
+  min-width: 0;
+  font: var(--t-body);
+  font-weight: 600;
+}
+
+.tcard__lead .trades__symbol {
+  font-weight: 600;
+}
+
+.tcard__fig {
+  flex: none;
+  font: var(--t-figure);
+  font-variant-numeric: tabular-nums;
+}
+
+.tcard__line--sub {
+  color: var(--ink-muted);
+  font: var(--t-hint);
+}
+
+.tcard__line--sub .tcard__fig {
+  font: var(--t-week);
+}
+
+.trades__qty-mono {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 640px) {
+  .trades__panel {
+    border: 1px solid var(--line);
+    border-radius: var(--r-dialog);
+    background: var(--surface);
+  }
+
+  .trades__table {
+    display: table;
+  }
+
+  .trades__table th.trades__status,
+  .trades__table td.trades__status {
+    padding-left: var(--s-6);
+  }
+
+  .trades__cards {
+    display: none;
+  }
+}
+
+/* Narrow tablets: smaller figures, tighter cells; Qty and Status give first */
+@media (min-width: 640px) and (max-width: 899px) {
+  .trades__table td.trades__fig {
+    font: var(--t-body);
+    font-weight: 600;
+    font-family: var(--font-mono);
+  }
+
+  .trades__table th.trades__qty,
+  .trades__table td.trades__qty {
+    padding-inline: var(--s-1);
+  }
+
+  /* Date over time, so the Opened column stays narrow */
+  .trades__table td.trades__opened {
+    white-space: normal;
+  }
+
+  .trades__date,
+  .trades__time {
+    display: block;
+  }
+
+  .trades__sep {
+    display: none;
+  }
+
+  .trades__table th:last-child,
+  .trades__table td:last-child {
+    padding-right: var(--s-3);
+  }
+}

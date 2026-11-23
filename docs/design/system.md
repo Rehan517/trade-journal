@@ -436,9 +436,9 @@ the stats tables (#18).
 - Side is `▲ Long` / `▼ Short` in `--ink`, never filled: in a table, green
   and red mean money only.
 - Status is a text badge: **Open** in `--link`, "Closed" in `--ink-muted`.
-- Below 640px the rows become cards (a `<ol>` of `--surface` boxes, 12px
-  radius, two lines each); the table is hidden with `display: none`. A
-  table never scrolls sideways.
+- Below 640px the rows become cards (a `<ol>` of standalone `--surface`
+  boxes, 12px radius, `--line` border, 8px apart, two lines each); the
+  table is hidden with `display: none`. A table never scrolls sideways.
 - More rows load with a ghost **Load more** button under the panel, never
   by infinite scroll.
 
