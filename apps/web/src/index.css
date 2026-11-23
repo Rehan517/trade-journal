@@ -32,8 +32,16 @@
   --gain: #3ddc97;
   --loss: #ff6b7a;
 
-  /* Selected Long and Short */
+  /* Calendar cells and shading; gain-3 and loss-3 are also selected Long and Short */
+  --cell-future: #11151b;
+  --cell-off: #0d1015;
+  --cell-off-ink: #3a4350;
+  --today: #5b8cff;
+  --gain-1: #0e3b2e;
+  --gain-2: #11553f;
   --gain-3: #157052;
+  --loss-1: #43191f;
+  --loss-2: #62202a;
   --loss-3: #852836;
 
   /* Type: Inter for words, JetBrains Mono for money, prices and the symbol */
@@ -42,6 +50,8 @@
   --t-heading: 700 1.75rem/2.125rem var(--font-sans);
   --t-title: 700 1.25rem/1.625rem var(--font-sans);
   --t-figure: 600 1.125rem/1.5rem var(--font-mono);
+  --t-stat: 600 1.375rem/1.75rem var(--font-mono);
+  --t-week: 600 0.9375rem/1.25rem var(--font-mono);
   --t-day: 600 1rem/1.25rem var(--font-mono);
   --t-field: 400 1rem/1.25rem var(--font-sans);
   --t-brand: 700 1rem/1.25rem var(--font-sans);
@@ -64,6 +74,9 @@
   --r-dialog: 16px;
   --r-control: 10px;
   --r-segment: 7px;
+  --r-card: 12px;
+  --r-swatch: 4px;
+  --r-pill: 999px;
 
   /* Motion */
   --m-fast: 120ms;
@@ -256,27 +269,457 @@ p {
   }
 }
 
-/* Main area until the calendar lands (#42) */
+/* Main area: the calendar */
 .home {
   max-width: 85rem;
   margin: 0 auto;
   padding: var(--s-8) var(--s-4);
 }
 
-.home__title {
-  margin: 0 0 var(--s-2);
+@media (min-width: 640px) {
+  .home {
+    padding-inline: var(--s-6);
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Calendar page: header, stats, then the month */
+.calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.calendar__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3) var(--s-4);
+}
+
+.calendar__title {
+  margin: 0;
   font: var(--t-heading);
   letter-spacing: -0.02em;
 }
 
-.home__text {
-  margin-bottom: var(--s-5);
+.calendar__nav {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.calendar__alert {
+  margin: 0;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-left: auto;
+  color: var(--ink-muted);
+  font: var(--t-hint);
+}
+
+.legend__swatches {
+  display: flex;
+  gap: var(--s-1);
+}
+
+.legend__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--r-swatch);
+}
+
+/* Stat cards */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s-3);
+}
+
+.stat {
+  /* The figure scales with its card, so it never breaks mid-number. */
+  container-type: inline-size;
+  padding: var(--s-4) 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.stat__name {
+  color: var(--ink-muted);
+  font: var(--t-caps);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.stat__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  margin-top: var(--s-1);
+  color: var(--ink);
+  font: var(--t-stat);
+  /* 22px when there's room; down to 14px so 12 characters fit a narrow card. */
+  font-size: clamp(14px, 13cqi, 22px);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat__value[data-tone='gain'] {
+  color: var(--gain);
+}
+
+.stat__value[data-tone='loss'] {
+  color: var(--loss);
+}
+
+.stat__context {
+  margin-top: var(--s-1);
+  color: var(--ink-muted);
+  font: var(--t-label);
+  font-weight: 400;
+}
+
+.btn.stat__action {
+  display: inline-block;
+  min-height: 0;
+  /* A 44px hit area that leaves the line as tall as the text. */
+  padding: 14px 0;
+  margin: -14px 0;
+  vertical-align: baseline;
+  color: var(--link);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* The month: a panel with a grid of 7 days and a week column */
+.cal {
+  container-type: inline-size;
+  border: 1px solid var(--line);
+  border-radius: var(--r-dialog);
+  background: var(--surface);
+}
+
+.cal__body {
+  padding: var(--s-3);
+}
+
+.cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr)) 150px;
+  gap: 6px;
+}
+
+.cal__weekday {
+  padding: var(--s-1) var(--s-1) var(--s-2);
+  color: var(--ink-muted);
+  font: var(--t-caps);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.cal__weekday abbr {
+  text-decoration: none;
+}
+
+.cal__wd-short {
+  display: none;
+}
+
+.cal__day {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto 1fr auto auto;
+  align-items: start;
+  min-height: 112px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: var(--cell);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: filter var(--m-fast) var(--ease-out);
+}
+
+.cal__day:disabled {
+  cursor: default;
+}
+
+.cal__day:not(:disabled):hover {
+  filter: brightness(1.2);
+}
+
+.cal__day[data-today='true'] {
+  box-shadow: inset 0 0 0 2px var(--today);
+}
+
+.cal__day[data-state='future'] {
+  background: var(--cell-future);
+  color: var(--ink-faint);
+}
+
+.cal__day[data-state='off'] {
+  background: var(--cell-off);
+  color: var(--cell-off-ink);
+}
+
+.cal__day[data-state$='-1'],
+.cal__day[data-state$='-2'],
+.cal__day[data-state$='-3'] {
+  color: var(--on-fill);
+}
+
+.cal__day[data-state='gain-1'],
+.legend__swatch[data-state='gain-1'] {
+  background: var(--gain-1);
+}
+
+.cal__day[data-state='gain-2'],
+.legend__swatch[data-state='gain-2'] {
+  background: var(--gain-2);
+}
+
+.cal__day[data-state='gain-3'],
+.legend__swatch[data-state='gain-3'] {
+  background: var(--gain-3);
+}
+
+.cal__day[data-state='loss-1'],
+.legend__swatch[data-state='loss-1'] {
+  background: var(--loss-1);
+}
+
+.cal__day[data-state='loss-2'],
+.legend__swatch[data-state='loss-2'] {
+  background: var(--loss-2);
+}
+
+.cal__day[data-state='loss-3'],
+.legend__swatch[data-state='loss-3'] {
+  background: var(--loss-3);
+}
+
+.legend__swatch[data-state='plain'] {
+  background: var(--cell);
+}
+
+.cal__num {
+  grid-area: 1 / 1;
+  font: var(--t-hint);
+  font-weight: 600;
+}
+
+.cal__day[data-state$='-1'] .cal__num,
+.cal__day[data-state$='-2'] .cal__num,
+.cal__day[data-state$='-3'] .cal__num {
+  color: rgb(255 255 255 / 0.88);
+}
+
+.cal__dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--s-1);
+  border-radius: var(--r-pill);
+  background: var(--ink);
+}
+
+.cal__badge {
+  grid-area: 1 / 2;
+  padding: 1px var(--s-2);
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--on-fill);
+  font: var(--t-caps);
+  letter-spacing: 0.04em;
+}
+
+.cal__amount {
+  grid-area: 3 / 1 / 4 / 3;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: var(--t-day);
+  font-variant-numeric: tabular-nums;
+}
+
+.cal__amount[data-tone='neutral'] {
+  color: var(--ink);
+}
+
+.cal__amount-compact {
+  display: none;
+}
+
+.cal__count {
+  grid-area: 4 / 1 / 5 / 3;
+  font: var(--t-label);
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.cal__open {
+  grid-area: 3 / 1 / 4 / 3;
+  color: var(--ink-muted);
+  font: var(--t-label);
+  font-weight: 400;
+}
+
+.cal__week {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--s-1);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--surface);
+}
+
+.cal__week-name {
+  color: var(--ink-muted);
+  font: var(--t-caps);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.cal__week-total {
+  font: var(--t-week);
+  font-variant-numeric: tabular-nums;
+}
+
+.cal__week-total[data-tone='gain'] {
+  color: var(--gain);
+}
+
+.cal__week-total[data-tone='loss'] {
+  color: var(--loss);
+}
+
+.cal__week-total[data-tone='muted'] {
   color: var(--ink-muted);
 }
 
-@media (min-width: 640px) {
-  .home {
-    padding-inline: var(--s-6);
+.cal__week-count {
+  color: var(--ink-muted);
+  font: var(--t-label);
+  font-weight: 400;
+}
+
+.cal__weeklist {
+  display: none;
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cal__weeklist li {
+  padding: var(--s-3) var(--s-2);
+  border-top: 1px solid var(--line);
+  font: var(--t-body);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Compact month, by the panel's width so no screen scrolls sideways: the
+ * phone layout from calendar.md, which also covers tablets, where seven
+ * full cells and a week column don't fit.
+ */
+@container (max-width: 1140px) {
+  .cal__body {
+    padding: var(--s-2);
+  }
+
+  .cal__grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: var(--s-1);
+  }
+
+  .cal__weekday--week,
+  .cal__week {
+    display: none;
+  }
+
+  .cal__weekday {
+    padding-inline: 0;
+    text-align: center;
+  }
+
+  .cal__wd-long {
+    display: none;
+  }
+
+  .cal__wd-short {
+    display: inline;
+  }
+
+  .cal__day {
+    min-height: 64px;
+    padding: 6px 2px;
+    justify-items: center;
+  }
+
+  .cal__num {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .cal__badge,
+  .cal__count {
+    display: none;
+  }
+
+  .cal__dot {
+    display: inline-block;
+    vertical-align: middle;
+  }
+
+  .cal__amount {
+    grid-area: 3 / 1 / 4 / 3;
+    font-size: 0.6875rem;
+    letter-spacing: -0.04em;
+  }
+
+  .cal__amount-full {
+    display: none;
+  }
+
+  .cal__amount-compact {
+    display: inline;
+  }
+
+  .cal__open {
+    grid-area: 3 / 1 / 4 / 3;
+    font-size: 0.6875rem;
+  }
+
+  .cal__weeklist {
+    display: block;
+  }
+}
+
+@media (max-width: 639px) {
+  .stats {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cal__day {
+    transition: none;
   }
 }
 
