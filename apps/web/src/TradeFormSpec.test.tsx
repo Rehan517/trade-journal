@@ -11,7 +11,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TradeForm } from './TradeForm.tsx';
+import { DialogHarness } from './DialogHarness.tsx';
 import { explainIssue } from './errorCopy.ts';
 
 const apiUrl = 'https://api.example.com';
@@ -65,7 +65,7 @@ function setup(
   clock = new Date(2026, 10, 19, 9, 30, 15);
   const onSignIn = vi.fn();
   render(
-    <TradeForm
+    <DialogHarness
       apiUrl={apiUrl}
       accessToken="tok"
       onSignIn={onSignIn}
@@ -89,6 +89,9 @@ const exact = (text: string) =>
   screen.getByText((_, el) => el?.textContent === text && !el.children.length);
 const save = () =>
   fireEvent.click(screen.getByRole('button', { name: 'Save trade' }));
+// A save closes the dialog and the form goes with it; the next open is fresh.
+const reopen = () =>
+  fireEvent.click(screen.getByRole('button', { name: 'Open trade dialog' }));
 const bodyOf = (fetchFn: typeof fetch, call = 0) =>
   JSON.parse(vi.mocked(fetchFn).mock.calls[call]![1]!.body as string);
 
@@ -128,7 +131,8 @@ describe('submit', () => {
     type('Stop', '4995');
     expect(screen.getByText('Open')).toBeTruthy();
     expect(screen.getByText('$50.00')).toBeTruthy();
-    expect(screen.getAllByText('–')).toHaveLength(2);
+    // Net P&L, R and Planned R:R.
+    expect(screen.getAllByText('–')).toHaveLength(3);
     save();
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
     expect(fetchFn).toHaveBeenCalledOnce();
@@ -198,6 +202,7 @@ describe('submit', () => {
     save();
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
     expect(bodyOf(fetchFn).side).toBe('short');
+    reopen();
     expect(checked('Short')).toBe(true);
     expect(JSON.parse((storage as Store).data.get(KEY)!)).toMatchObject({
       instrumentType: 'stock',
@@ -218,7 +223,7 @@ describe('submit', () => {
     expect(body.closedAt).toBe('2026-07-01T19:45:00.000Z');
   });
 
-  it('resets everything except type, side and point value, with entry time set to now', async () => {
+  it('opens blank except type, side and point value, with entry time set to now', async () => {
     setup();
     click('Future');
     click('Short');
@@ -236,6 +241,7 @@ describe('submit', () => {
     clock = new Date(2026, 10, 19, 10, 5, 0);
     save();
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
+    reopen();
     for (const l of [
       'Symbol',
       'Qty',
@@ -314,7 +320,7 @@ describe('live preview', () => {
     type('Entry', '187.50');
     type('Exit', '190.00');
     expect(screen.getByText('+$25.00')).toBeTruthy();
-    expect(screen.getAllByText('–')).toHaveLength(2);
+    expect(screen.getAllByText('–')).toHaveLength(3);
   });
 
   it('example D: stock short', () => {
@@ -367,7 +373,7 @@ describe('live preview', () => {
     expect(exact('+2.00\u202fR')).toBeTruthy();
     type('Stop', 'x');
     expect(screen.getByText('+$10.00')).toBeTruthy();
-    expect(screen.getAllByText('–')).toHaveLength(2);
+    expect(screen.getAllByText('–')).toHaveLength(3);
   });
 
   it('shows dashes for a future with no point value or a fractional quantity', () => {
@@ -378,12 +384,12 @@ describe('live preview', () => {
     type('Exit', '5010');
     type('Stop', '4995');
     expect(screen.queryByText('$50.00')).toBeNull();
-    expect(screen.getAllByText('–')).toHaveLength(3);
+    expect(screen.getAllByText('–')).toHaveLength(4);
     type('Point value', '5');
     expect(screen.getByText('+$100.00')).toBeTruthy();
     type('Qty', '1.5');
     expect(screen.queryByText('+$75.00')).toBeNull();
-    expect(screen.getAllByText('–')).toHaveLength(3);
+    expect(screen.getAllByText('–')).toHaveLength(4);
   });
 
   it('the result strip is a polite live region', () => {
@@ -1154,7 +1160,7 @@ describe('defaults', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 10, 19, 9, 41, 59));
     render(
-      <TradeForm
+      <DialogHarness
         apiUrl={apiUrl}
         accessToken="tok"
         onSignIn={() => {}}
@@ -1261,7 +1267,7 @@ describe('defaults', () => {
     );
     try {
       render(
-        <TradeForm
+        <DialogHarness
           apiUrl={apiUrl}
           accessToken="tok"
           onSignIn={() => {}}
@@ -1300,7 +1306,7 @@ describe('defaults', () => {
       throw new Error('blocked');
     });
     render(
-      <TradeForm
+      <DialogHarness
         apiUrl={apiUrl}
         accessToken="tok"
         onSignIn={() => {}}
@@ -1368,7 +1374,9 @@ describe('keyboard', () => {
     fireEvent.keyDown(field('Entry'), { key: 'Enter' });
     expect(document.activeElement).toBe(field('Exit'));
     // Leaving Entry shows its own error (blur); fields never visited stay quiet.
+    // Symbol had focus only because the dialog opened there, so it's quiet too.
     expect(field('Symbol').getAttribute('aria-invalid')).toBeNull();
+    expect(field('Qty').getAttribute('aria-invalid')).toBeNull();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
@@ -1415,9 +1423,12 @@ describe('keyboard', () => {
     click('Future');
     const radios = (names: string[]) =>
       names.map((n) => screen.getByRole('radio', { name: n }));
+    // The dialog adds Close before the fields and Cancel before Save.
     const seq: HTMLElement[] = [
+      screen.getByRole('button', { name: 'Close' }),
       ...radios(['Stock', 'Future', 'Long', 'Short']),
       ...futureOrder.map((l) => field(l)),
+      screen.getByRole('button', { name: 'Cancel' }),
       screen.getByRole('button', { name: 'Save trade' }),
     ];
     for (let i = 1; i < seq.length; i++) {
@@ -1438,7 +1449,7 @@ describe('keyboard', () => {
         !(el instanceof HTMLInputElement && el.type === 'radio') &&
         el.getAttribute('tabindex') !== '-1',
     );
-    expect(stops).toHaveLength(futureOrder.length + 1);
+    expect(stops).toHaveLength(futureOrder.length + 3);
     // No positive tabindex anywhere: it would reorder Tab away from DOM order.
     for (const el of form.querySelectorAll('[tabindex]')) {
       expect(Number(el.getAttribute('tabindex'))).toBeLessThanOrEqual(0);

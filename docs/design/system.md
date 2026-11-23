@@ -106,6 +106,7 @@ native date pickers and scrollbars are dark too.
 | `--accent`       | `#2F63D8` | Primary button, Today badge, logo tile                   |
 | `--accent-hover` | `#3A6FE6` | Primary button hover                                     |
 | `--link`         | `#AFC6FF` | Text links                                               |
+| `--on-fill`      | `#FFFFFF` | Text and icons on `--accent` and on the shades           |
 | `--focus`        | `#8FB0FF` | Focus ring                                               |
 | `--today`        | `#5B8CFF` | Today's outline on the calendar                          |
 | `--gain`         | `#3DDC97` | Positive P&L and R as text                               |
@@ -178,7 +179,8 @@ Fallbacks: `Inter, system-ui, sans-serif` and
 | `--t-stat`    | 22 / 28     | Mono  | 600     | Stat card values                                 |
 | `--t-title`   | 20 / 26     | Inter | 700     | Dialog title                                     |
 | `--t-figure`  | 18 / 24     | Mono  | 600     | Dialog result strip values                       |
-| `--t-day`     | 16 / 20     | Mono  | 600     | Calendar day amount; field values                |
+| `--t-day`     | 16 / 20     | Mono  | 600     | Calendar day amount; numeric field values        |
+| `--t-field`   | 16 / 20     | Inter | 400     | Text, time and notes field values                |
 | `--t-brand`   | 16 / 20     | Inter | 700     | "Trade Journal" in the top bar                   |
 | `--t-week`    | 15 / 20     | Mono  | 600     | Week total                                       |
 | `--t-body`    | 14 / 20     | Inter | 400–600 | Body, buttons (600), nav (500)                   |
@@ -226,7 +228,7 @@ calendar grid gap is 6px and a segmented control's inner gap is 4px.
 | Inside a stat card               | 16 × 18          |
 | Inside a calendar day            | 10 × 12          |
 | Dialog padding                   | 24 (16 on phone) |
-| Between field rows in the dialog | 16               |
+| Between field rows in the dialog | 12               |
 | Between fields in a row          | 14               |
 | Label to input                   | 6                |
 
@@ -262,8 +264,9 @@ button (with a + icon) and **Sign out** as a quiet link.
 - Nav items are links, 44px tall, `--ink-muted`, `--raised` background and
   `--ink` text when current (`aria-current="page"`). The nav shows only
   pages that exist.
-- The bar wraps on narrow screens: brand and actions on one row, nav on the
-  next. It never scrolls sideways.
+- The bar wraps on narrow screens in DOM order (brand, nav, New trade, Sign
+  out), so the Tab order always matches what's on screen. It never scrolls
+  sideways.
 
 ### Buttons
 
@@ -351,13 +354,18 @@ Phone layout is in [calendar.md](../spec/calendar.md#phone).
 - A native `<dialog>` opened with `showModal()`: the page behind is inert,
   focus stays inside, Esc closes it. `aria-labelledby` points at the title.
 - 600px wide (`max-width: 100%`), `--surface`, 1px `--line-strong` border,
-  16px radius, the shadow above, over `--scrim`. It sits 48px from the top
-  and the page behind scrolls the dialog if it's taller than the window.
+  16px radius, the shadow above, over `--scrim`. It sits 24px from the top,
+  so Save trade stays on screen in an 800px-high window. Its header, result
+  strip and footer stay put; only the field area scrolls. In a window under
+  600px high (a laptop at 200% zoom), the whole form scrolls instead with
+  the footer pinned, so Save trade is always in reach.
 - On open, focus goes to the first field. On close, focus returns to the
   button that opened it.
 - **Phone (< 640px):** the dialog fills the screen (no radius, no border),
-  its body scrolls, and the footer with Save trade is pinned to the bottom,
-  inside thumb reach, never covering the focused field.
+  the header, fields and result strip scroll together, and only the footer
+  with Save trade is pinned to the bottom, inside thumb reach, never
+  covering the focused field. That keeps room for the fields when the
+  keyboard is up.
 
 ### Forms
 
@@ -388,7 +396,7 @@ trade's own terms.
 #### Segmented control
 
 A radio group in a `--bg` well with a 1px `--line-strong` border, 10px
-radius and 4px padding. Each segment is 40px tall with a 7px radius.
+radius and 4px padding. Each segment is 44px tall with a 7px radius.
 
 | Control        | Selected segment            |
 | -------------- | --------------------------- |
@@ -439,7 +447,8 @@ Motion only answers something the trader did. Nothing moves on its own.
 | `--ease-in`  | `cubic-bezier(0.4, 0, 1, 1)` | Things leaving (and 0.75× the duration) |
 
 - The dialog fades in and rises 8px over `--m-dialog`; the scrim fades in.
-  On phone the sheet slides up from the bottom.
+  On phone the sheet slides up from the bottom. Closing is instant: the
+  native `close()` doesn't wait for an exit animation.
 - **Numbers never animate (kept).** No count-ups, ticking or flashing.
 - **No entrance animations** on page load or month change. A new month
   appears ready.

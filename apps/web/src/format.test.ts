@@ -3,6 +3,7 @@ import {
   formatAmount,
   formatMoney,
   formatR,
+  formatRewardRisk,
   formatShortDate,
   localToUtc,
   toLocalInputValue,
@@ -52,5 +53,17 @@ describe('times', () => {
   it('adds the year only when it is not the current one', () => {
     expect(formatShortDate('2026-11-19T09:30', 2026)).not.toMatch(/2026/);
     expect(formatShortDate('2025-11-19T09:30', 2026)).toMatch(/2025/);
+  });
+});
+
+describe('formatRewardRisk', () => {
+  it.each([
+    ['4.00', '1 : 4.00'],
+    ['2.5', '1 : 2.50'],
+    ['0', '1 : 0.00'],
+    ['0.125', '1 : 0.13'],
+    ['1234.5', '1 : 1234.50'],
+  ])('%s -> %s', (exact, text) => {
+    expect(formatRewardRisk(exact)).toBe(text);
   });
 });

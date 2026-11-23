@@ -614,25 +614,26 @@ across: Type | Side, Symbol | Point value (Symbol alone for a stock), Qty |
 Entry, Exit | Fees, Entry time (full row), Exit time (full row), Stop |
 Target, Notes. A `datetime-local` value is cut off at half width, so the
 times take full rows. Below 360px, Type and Side take full rows too, so the
-toggle labels don't wrap. The result strip is 2 × 2. The footer with Save
-trade is pinned to the bottom, inside thumb reach, and the field area gets
-bottom padding equal to it, so it never covers the focused field.
+toggle labels don't wrap. The result strip is 2 × 2 and scrolls with the
+fields and header. Only the footer with Save trade is pinned to the bottom,
+inside thumb reach, and scroll padding equal to it keeps it from covering
+the focused field.
 
-| Cell        | Body field       | Input                                                                                   | Required         |
-| ----------- | ---------------- | --------------------------------------------------------------------------------------- | ---------------- |
-| Type        | `instrumentType` | Radio group, "Stock" / "Future". Remembered                                             | Yes              |
-| Side        | `side`           | Radio group, "▲ Long" / "▼ Short". Remembered. No colour                                | Yes              |
-| Symbol      | `symbol`         | `text`, `autocapitalize="characters"`, `autocomplete="off"`, `spellcheck=false`, max 12 | Yes              |
-| Point value | `pointValue`     | `inputmode="decimal"`, `$` prefix and `/pt` suffix. Futures only. Remembered            | Futures          |
-| Qty         | `quantity`       | `inputmode="decimal"`                                                                   | Yes              |
-| Entry       | `entryPrice`     | `inputmode="decimal"`, placeholder `0.00`                                               | Yes              |
-| Exit        | `exitPrice`      | `inputmode="decimal"`, placeholder `0.00`                                               | With exit time   |
-| Fees        | `fees`           | `inputmode="decimal"`, placeholder `0.00`                                               | No (empty → `0`) |
-| Entry time  | `openedAt`       | `datetime-local`, defaults to now                                                       | Yes              |
-| Exit time   | `closedAt`       | `datetime-local`. Filled with now when an exit price is typed and it's blank            | With exit price  |
-| Stop        | `plannedStop`    | `inputmode="decimal"`                                                                   | No               |
-| Target      | `plannedTarget`  | `inputmode="decimal"`                                                                   | No               |
-| Notes       | `notes`          | `textarea`, max 5000                                                                    | No               |
+| Cell        | Body field       | Input                                                                                    | Required         |
+| ----------- | ---------------- | ---------------------------------------------------------------------------------------- | ---------------- |
+| Type        | `instrumentType` | Radio group, "Stock" / "Future". Remembered                                              | Yes              |
+| Side        | `side`           | Radio group, "▲ Long" / "▼ Short". Remembered. Filled `--gain-3` / `--loss-3` (redesign) | Yes              |
+| Symbol      | `symbol`         | `text`, `autocapitalize="characters"`, `autocomplete="off"`, `spellcheck=false`, max 12  | Yes              |
+| Point value | `pointValue`     | `inputmode="decimal"`, `$` prefix and `/pt` suffix. Futures only. Remembered             | Futures          |
+| Qty         | `quantity`       | `inputmode="decimal"`                                                                    | Yes              |
+| Entry       | `entryPrice`     | `inputmode="decimal"`, placeholder `0.00`                                                | Yes              |
+| Exit        | `exitPrice`      | `inputmode="decimal"`, placeholder `0.00`                                                | With exit time   |
+| Fees        | `fees`           | `inputmode="decimal"`, placeholder `0.00`                                                | No (empty → `0`) |
+| Entry time  | `openedAt`       | `datetime-local`, defaults to now                                                        | Yes              |
+| Exit time   | `closedAt`       | `datetime-local`. Filled with now when an exit price is typed and it's blank             | With exit price  |
+| Stop        | `plannedStop`    | `inputmode="decimal"`                                                                    | No               |
+| Target      | `plannedTarget`  | `inputmode="decimal"`                                                                    | No               |
+| Notes       | `notes`          | `textarea`, max 5000                                                                     | No               |
 
 - Every single-line input has `enterkeyhint="next"`, so the phone keyboard
   labels Enter as "Next", and Enter does move to the next field (decision

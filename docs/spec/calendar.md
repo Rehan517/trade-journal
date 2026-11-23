@@ -79,8 +79,8 @@ Built in PR 2, per [system.md](../design/system.md#top-bar).
 - **New trade** opens the dialog with entry time set to now. It's the
   page's primary button.
 - **Sign out** works as today ([AuthView.tsx](../../apps/web/src/AuthView.tsx)).
-- Below 640px the bar wraps: brand and New trade on the first row, nav and
-  Sign out on the second.
+- Below 640px the bar wraps in DOM order (brand, nav, New trade, Sign out),
+  so the Tab order matches the screen.
 
 ## Trading days
 

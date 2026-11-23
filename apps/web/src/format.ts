@@ -40,6 +40,11 @@ export function formatR(exact: string): { text: string; tone: Tone } {
     : { text: `+${abs}${NARROW_NBSP}R`, tone: 'gain' };
 }
 
+/** Planned reward to risk as `1 : 4.00`, from an exact decimal string. */
+export function formatRewardRisk(exact: string): string {
+  return `1 : ${fixed2(exact).abs}`;
+}
+
 /** `datetime-local` value (device time zone) for a Date, to the minute. */
 export function toLocalInputValue(date: Date): string {
   const p = (n: number, width = 2) => String(n).padStart(width, '0');

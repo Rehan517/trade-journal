@@ -10,6 +10,7 @@ import {
   PositiveDecimalStringSchema,
   type InstrumentType,
   type TradeSide,
+  type TradeView,
 } from '@trade-journal/shared';
 import { ApiError, INVALID_RESPONSE_STATUS, createTrade } from './api.ts';
 import {
@@ -18,7 +19,7 @@ import {
   placeIssue,
   type FieldName,
 } from './errorCopy.ts';
-import { formatShortDate, toLocalInputValue } from './format.ts';
+import { toLocalInputValue } from './format.ts';
 import {
   readLastTrade,
   writeLastTrade,
@@ -31,7 +32,6 @@ import {
   ResultStrip,
   SegmentedCell,
   TextCell,
-  Toast,
 } from './FormParts.tsx';
 import {
   checkForm,
@@ -47,12 +47,13 @@ const TYPE_OPTIONS = [
 ] as const satisfies readonly { value: InstrumentType; text: string }[];
 
 const SIDE_OPTIONS = [
-  { value: 'long', text: 'Long', glyph: '▲' },
-  { value: 'short', text: 'Short', glyph: '▼' },
+  { value: 'long', text: 'Long', glyph: '▲', tone: 'gain' },
+  { value: 'short', text: 'Short', glyph: '▼', tone: 'loss' },
 ] as const satisfies readonly {
   value: TradeSide;
   text: string;
   glyph: string;
+  tone: 'gain' | 'loss';
 }[];
 
 const SAVE_FAILED =
@@ -63,7 +64,11 @@ const SESSION_EXPIRED = 'Your session has expired. Sign in again.';
 
 type AlertState = { kind: 'session' } | { kind: 'message'; messages: string[] };
 
-function blankValues(now: () => Date, last: LastTrade): FormValues {
+function blankValues(
+  now: () => Date,
+  last: LastTrade,
+  openedAt?: string,
+): FormValues {
   return {
     instrumentType: last.instrumentType,
     side: last.side,
@@ -73,13 +78,30 @@ function blankValues(now: () => Date, last: LastTrade): FormValues {
     entryPrice: '',
     exitPrice: '',
     fees: '',
-    openedAt: toLocalInputValue(now()),
+    openedAt: openedAt ?? toLocalInputValue(now()),
     closedAt: '',
     plannedStop: '',
     plannedTarget: '',
     notes: '',
   };
 }
+
+/** Type and side are remembered defaults; changing them alone isn't work to lose. */
+const DIRTY_FIELDS = [
+  'symbol',
+  'pointValue',
+  'quantity',
+  'entryPrice',
+  'exitPrice',
+  'fees',
+  'openedAt',
+  'closedAt',
+  'plannedStop',
+  'plannedTarget',
+  'notes',
+] as const satisfies readonly (keyof FormValues)[];
+
+export const TRADE_TITLE_ID = 'trade-dialog-title';
 
 /** Single-line inputs, then Notes. A radio group counts as its checked radio. */
 const NAV_SELECTOR =
@@ -121,6 +143,12 @@ export function TradeForm({
   fetchFn,
   now = () => new Date(),
   storage,
+  initialOpenedAt,
+  onSaved,
+  onCancel,
+  onDirtyChange,
+  onSavingChange,
+  discard,
 }: {
   apiUrl: string;
   accessToken: string | undefined;
@@ -132,31 +160,80 @@ export function TradeForm({
   now?: () => Date;
   /** Where type, side and point value are remembered; defaults to localStorage. */
   storage?: StorageLike;
+  /** Entry time to start with, a `datetime-local` value. Now when absent. */
+  initialOpenedAt?: string;
+  /** Called with the saved trade after a 201. The parent closes the form. */
+  onSaved: (trade: TradeView) => void;
+  /** Cancel and the close button. The parent decides whether to close. */
+  onCancel: () => void;
+  /** True once anything other than Type and Side differs from the start. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** True from the moment a save starts until it settles. */
+  onSavingChange?: (saving: boolean) => void;
+  /**
+   * Set while the parent is asking "Discard this trade?". The footer then
+   * shows that question instead of Save trade.
+   */
+  discard?: { onKeepEditing: () => void; onDiscard: () => void } | null;
 }) {
-  const [values, setValues] = useState(() =>
-    blankValues(now, readLastTrade(storage)),
+  const [initial] = useState(() =>
+    blankValues(now, readLastTrade(storage), initialOpenedAt),
   );
-  const [currentYear] = useState(() => now().getFullYear());
+  const [values, setValues] = useState(initial);
   // Fields whose error is on show. A field joins on blur or save, if it has
   // an error then, and leaves once it's fixed.
   const [armed, setArmed] = useState<Partial<Record<FieldName, true>>>({});
   const [serverErrors, setServerErrors] = useState<FieldErrors>({});
   const [alert, setAlert] = useState<AlertState | null>(null);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ id: number; message: string } | null>(
-    null,
-  );
   const [mac] = useState(isMac);
   const formRef = useRef<HTMLFormElement>(null);
   const savingRef = useRef(false);
   const controllerRef = useRef<AbortController | undefined>(undefined);
-  const toastId = useRef(0);
+  const keepRef = useRef<HTMLButtonElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
-  const [autoFilledExit, setAutoFilledExit] = useState<string>();
-  const focusAlertNext = useRef(false);
   // The exit time this form filled in itself, so clearing the exit price can
   // take it back out. An exit time the trader typed or edited never matches.
-  
+  const [autoFilledExit, setAutoFilledExit] = useState<string>();
+  const focusAlertNext = useRef(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  // The dialog opens with focus on Symbol. Leaving it untouched that first
+  // time isn't a visit, so it doesn't show "Enter a symbol" (decision 4).
+  // Typing in it, or leaving it once, ends that.
+  const [symbolQuiet, setSymbolQuiet] = useState(true);
+  const dirty = DIRTY_FIELDS.some((f) => values[f] !== initial[f]);
+  const callbacks = useRef({ onDirtyChange, onSavingChange });
+  useEffect(() => {
+    callbacks.current = { onDirtyChange, onSavingChange };
+  });
+  useEffect(() => {
+    callbacks.current.onDirtyChange?.(dirty);
+  }, [dirty]);
+
+  // The discard question takes focus on Keep editing, and gives it back to
+  // where it was when the trader keeps editing.
+  const asking = Boolean(discard);
+  useEffect(() => {
+    if (!asking) return;
+    const before = document.activeElement;
+    keepRef.current?.focus();
+    return () => {
+      // Cancel was removed while the question showed, so focus had moved to
+      // the body; give it back to the new Cancel button instead.
+      if (
+        before instanceof HTMLElement &&
+        before.isConnected &&
+        before !== document.body
+      ) {
+        before.focus();
+      } else {
+        // Read at cleanup on purpose: it's the Cancel button rendered again
+        // once the question goes away.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        cancelRef.current?.focus();
+      }
+    };
+  }, [asking]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
@@ -199,6 +276,7 @@ export function TradeForm({
   }
 
   function change(field: keyof FormValues, value: string) {
+    if (field === 'symbol' && symbolQuiet) setSymbolQuiet(false);
     if (saving) return;
     const patch: Partial<FormValues> = { [field]: value };
     if (field === 'exitPrice') {
@@ -221,6 +299,10 @@ export function TradeForm({
   }
 
   function blur(field: FieldName) {
+    if (field === 'symbol' && symbolQuiet) {
+      setSymbolQuiet(false);
+      return;
+    }
     if (errors[field] !== undefined && !armed[field]) {
       setArmed((prev) => ({ ...prev, [field]: true }));
     }
@@ -254,12 +336,14 @@ export function TradeForm({
 
     savingRef.current = true;
     setSaving(true);
+    callbacks.current.onSavingChange?.(true);
     setAlert(null);
     setServerErrors({});
     const controller = new AbortController();
     controllerRef.current = controller;
+    let saved: TradeView | undefined;
     try {
-      await createTrade(
+      const trade = await createTrade(
         apiUrl,
         accessToken,
         check.body,
@@ -275,19 +359,18 @@ export function TradeForm({
           : {}),
       };
       writeLastTrade(last, storage);
-      toastId.current += 1;
-      setToast({ id: toastId.current, message: 'Trade saved' });
-      setValues(blankValues(now, last));
-      setArmed({});
-      setAutoFilledExit(undefined);
-      focusField('symbol');
+      saved = trade;
     } catch (err) {
       if (controller.signal.aborted) return;
       handleFailure(err);
     } finally {
       savingRef.current = false;
+      callbacks.current.onSavingChange?.(false);
       if (!controller.signal.aborted) setSaving(false);
     }
+    // Outside the try, so an error in the page's handler isn't reported as
+    // a failed save.
+    if (saved) onSaved(saved);
   }
 
   function handleFailure(err: unknown) {
@@ -343,10 +426,16 @@ export function TradeForm({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLFormElement>) {
-    if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+    if (
+      e.key !== 'Enter' ||
+      e.nativeEvent.isComposing ||
+      e.nativeEvent.keyCode === 229
+    ) {
+      return;
+    }
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      void save();
+      if (!discard) void save();
       return;
     }
     const target = e.target as HTMLElement;
@@ -375,19 +464,40 @@ export function TradeForm({
       onSubmit={onSubmit}
       onKeyDown={onKeyDown}
     >
-      <div className="ticket">
-        <div className="ticket__header">
-          <h1 className="ticket__title">New trade</h1>
-          {open ? (
-            <span className="ticket__meta ticket__meta--open">Open</span>
-          ) : (
-            <span className="ticket__meta">
-              {formatShortDate(values.openedAt, currentYear)}
-            </span>
-          )}
+      <div className="dlg__header">
+        <div className="dlg__heading">
+          <h2 className="dlg__title" id={TRADE_TITLE_ID}>
+            New trade
+          </h2>
+          <p className="dlg__subtitle">
+            Leave exit blank if the position is still open.
+          </p>
         </div>
+        {open && <span className="dlg__open">Open</span>}
+        <button
+          type="button"
+          className="btn btn--icon"
+          aria-label="Close"
+          aria-disabled={saving ? 'true' : undefined}
+          onClick={onCancel}
+        >
+          <svg
+            aria-hidden="true"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
 
-        <div className="ticket__grid">
+      <div className="dlg__body">
+        <div className="fields">
           <SegmentedCell
             name="instrumentType"
             label="Type"
@@ -409,9 +519,9 @@ export function TradeForm({
             label="Symbol"
             maxLength={12}
             symbol
-            className={future ? '' : 'cell--span-sm'}
+            className={future ? '' : 'cell--wide'}
           />
-          {future ? (
+          {future && (
             <TextCell
               {...cell('pointValue')}
               label="Point value"
@@ -419,8 +529,6 @@ export function TradeForm({
               prefix="$"
               suffix="/pt"
             />
-          ) : (
-            <div className="cell cell--spacer" aria-hidden="true" />
           )}
           <TextCell {...cell('quantity')} label="Qty" decimal />
           <TextCell
@@ -448,9 +556,20 @@ export function TradeForm({
             type="datetime-local"
             className="cell--time"
           />
-          <TextCell {...cell('plannedStop')} label="Stop" decimal />
-          <TextCell {...cell('plannedTarget')} label="Target" decimal />
-          <div className="cell cell--filler" aria-hidden="true" />
+          <TextCell
+            {...cell('plannedStop')}
+            label="Stop"
+            decimal
+            optional
+            className="cell--half"
+          />
+          <TextCell
+            {...cell('plannedTarget')}
+            label="Target"
+            decimal
+            optional
+            className="cell--half"
+          />
           <NotesCell
             value={values.notes}
             readOnly={saving}
@@ -459,9 +578,9 @@ export function TradeForm({
             onBlur={() => blur('notes')}
           />
         </div>
-
-        <ResultStrip preview={preview} />
       </div>
+
+      <ResultStrip preview={preview} />
 
       {alert && (
         <Alert alertRef={alertRef}>
@@ -470,7 +589,7 @@ export function TradeForm({
               <p>{SESSION_EXPIRED}</p>
               <button
                 type="button"
-                className="btn btn--secondary"
+                className="btn btn--ghost"
                 onClick={onSignIn}
               >
                 Sign in
@@ -482,19 +601,57 @@ export function TradeForm({
         </Alert>
       )}
 
-      <div className="actions">
-        <button
-          type="submit"
-          className="btn btn--primary"
-          aria-disabled={saving ? 'true' : undefined}
-          aria-keyshortcuts="Control+Enter Meta+Enter"
-        >
-          {saving ? 'Saving…' : 'Save trade'}
-        </button>
-        <span className="actions__hint">{mac ? '⌘ Enter' : 'Ctrl+Enter'}</span>
+      <div className="dlg__footer">
+        {discard ? (
+          <div
+            className="dlg__discard"
+            role="group"
+            aria-labelledby="trade-discard-question"
+          >
+            <p className="dlg__question" id="trade-discard-question">
+              Discard this trade?
+            </p>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              ref={keepRef}
+              onClick={discard.onKeepEditing}
+            >
+              Keep editing
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger"
+              onClick={discard.onDiscard}
+            >
+              Discard
+            </button>
+          </div>
+        ) : (
+          <>
+            <span className="dlg__shortcut">
+              {mac ? '⌘ Enter' : 'Ctrl+Enter'} to save · Esc to close
+            </span>
+            <button
+              type="button"
+              ref={cancelRef}
+              className="btn btn--ghost"
+              aria-disabled={saving ? 'true' : undefined}
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn--primary"
+              aria-disabled={saving ? 'true' : undefined}
+              aria-keyshortcuts="Control+Enter Meta+Enter"
+            >
+              {saving ? 'Saving…' : 'Save trade'}
+            </button>
+          </>
+        )}
       </div>
-
-      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </form>
   );
 }

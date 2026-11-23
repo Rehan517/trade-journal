@@ -51,17 +51,40 @@ describe('AuthView', () => {
     expect(signinRedirect).toHaveBeenCalledOnce();
   });
 
-  it('shows the top bar, Sign out and the trade form when signed in', () => {
+  it('shows the top bar, Sign out and the empty home when signed in', () => {
     mockAuth({
       isAuthenticated: true,
       user: { profile: { email: 'me@example.com' } },
     });
     render(<AuthView config={config} />);
     expect(screen.getByText('Trade Journal')).toBeTruthy();
+    expect(
+      screen
+        .getByRole('link', { name: 'Calendar' })
+        .getAttribute('aria-current'),
+    ).toBe('page');
+    expect(screen.getByRole('button', { name: 'New trade' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Your trades' })).toBeTruthy();
+    expect(screen.getByText('Log a trade to start your journal.')).toBeTruthy();
+    // The form is in a dialog that isn't open yet.
+    expect(screen.queryByRole('button', { name: 'Save trade' })).toBeNull();
+    expect(screen.queryByText(/Token user ID/)).toBeNull();
+  });
+
+  it('opens the New trade dialog from the top bar and from the empty state', () => {
+    mockAuth({
+      isAuthenticated: true,
+      user: { profile: { email: 'me@example.com' } },
+    });
+    render(<AuthView config={config} />);
+    fireEvent.click(screen.getByRole('button', { name: 'New trade' }));
     expect(screen.getByRole('heading', { name: 'New trade' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Save trade' })).toBeTruthy();
-    expect(screen.queryByText(/Token user ID/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('button', { name: 'Save trade' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Log a trade' }));
+    expect(screen.getByRole('button', { name: 'Save trade' })).toBeTruthy();
   });
 
   it('shows the error and Try again', () => {
@@ -114,7 +137,7 @@ describe('AuthView', () => {
       error: new Error('refresh failed'),
     });
     render(<AuthView config={config} />);
-    expect(screen.getByRole('heading', { name: 'New trade' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Your trades' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
   });
 
@@ -137,6 +160,47 @@ describe('AuthView', () => {
 });
 
 describe('AuthView signed in', () => {
+  it('a 201 closes the dialog, shows "Trade saved" and refocuses the clicked button', async () => {
+    mockAuth({
+      isAuthenticated: true,
+      user: { access_token: 'tok', profile: { sub: 'sub-1' } },
+    });
+    const fetchFn = vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: '3f0c1c52-6a3a-4f0e-9d0c-8a8f4f3b7a11',
+            symbol: 'AAPL',
+            instrumentType: 'stock',
+            side: 'long',
+            quantity: '1',
+            entryPrice: '5',
+            openedAt: '2026-11-19T14:30:00.000Z',
+            fees: '0',
+            createdAt: '2026-11-19T14:31:00.000Z',
+            updatedAt: '2026-11-19T14:31:00.000Z',
+            metrics: {},
+          }),
+          { status: 201 },
+        ),
+      ),
+    ) as unknown as typeof fetch;
+    render(<AuthView config={config} fetchFn={fetchFn} />);
+    const opener = screen.getByRole('button', { name: 'Log a trade' });
+    fireEvent.click(opener);
+    fireEvent.change(screen.getByLabelText('Symbol'), {
+      target: { value: 'AAPL' },
+    });
+    fireEvent.change(screen.getByLabelText('Qty'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Entry'), {
+      target: { value: '5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save trade' }));
+    await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Save trade' })).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
   it('makes no API call just by showing the form', () => {
     mockAuth({
       isAuthenticated: true,
@@ -144,6 +208,8 @@ describe('AuthView signed in', () => {
     });
     const fetchFn = vi.fn() as unknown as typeof fetch;
     render(<AuthView config={config} fetchFn={fetchFn} />);
+    fireEvent.click(screen.getByRole('button', { name: 'New trade' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,13 @@ import {
   type MouseEvent,
 } from 'react';
 import { fieldId, type FieldName } from './errorCopy.ts';
-import { formatAmount, formatMoney, formatR, type Tone } from './format.ts';
+import {
+  formatAmount,
+  formatMoney,
+  formatR,
+  formatRewardRisk,
+  type Tone,
+} from './format.ts';
 import type { Preview } from './tradeFormModel.ts';
 
 const errorId = (field: FieldName) => `tf-${field}-error`;
@@ -37,6 +43,7 @@ export function TextCell({
   maxLength,
   symbol = false,
   readOnly = false,
+  optional = false,
 }: {
   field: FieldName;
   label: string;
@@ -54,6 +61,8 @@ export function TextCell({
   maxLength?: number;
   symbol?: boolean;
   readOnly?: boolean;
+  /** Shows "optional" at the right of the label row. */
+  optional?: boolean;
 }) {
   return (
     <div
@@ -61,9 +70,12 @@ export function TextCell({
       data-invalid={error ? 'true' : undefined}
       onClick={focusControl}
     >
-      <label className="cell__label" htmlFor={fieldId(field)}>
-        {label}
-      </label>
+      <div className="cell__head">
+        <label className="cell__label" htmlFor={fieldId(field)}>
+          {label}
+        </label>
+        {optional && <span className="cell__hint">optional</span>}
+      </div>
       <div className="cell__control">
         {prefix && (
           <span className="cell__affix" aria-hidden="true">
@@ -72,7 +84,7 @@ export function TextCell({
         )}
         <input
           id={fieldId(field)}
-          className={`cell__input${type === 'datetime-local' ? ' cell__input--time' : ''}`}
+          className={`cell__input${type === 'datetime-local' ? ' cell__input--time' : ' cell__input--mono'}`}
           type={type}
           value={value}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
@@ -124,14 +136,16 @@ export function NotesCell({
       data-invalid={error ? 'true' : undefined}
       onClick={focusControl}
     >
-      <label className="cell__label" htmlFor={fieldId('notes')}>
-        Notes
-      </label>
+      <div className="cell__head">
+        <label className="cell__label" htmlFor={fieldId('notes')}>
+          Notes
+        </label>
+      </div>
       <div className="cell__control">
         <textarea
           id={fieldId('notes')}
           className="cell__input cell__input--notes"
-          rows={2}
+          rows={3}
           value={value}
           maxLength={5000}
           readOnly={readOnly}
@@ -162,22 +176,34 @@ export function SegmentedCell<T extends string>({
   name: string;
   label: string;
   value: T;
-  options: readonly { value: T; text: string; glyph?: string }[];
+  options: readonly {
+    value: T;
+    text: string;
+    glyph?: string;
+    /** The selected fill: ink (default), gain (Long) or loss (Short). */
+    tone?: 'gain' | 'loss';
+  }[];
   onChange: (value: T) => void;
   className?: string;
 }) {
   return (
     <div className={`cell cell--segmented ${className}`}>
-      <span className="cell__label" id={`${name}-label`}>
-        {label}
-      </span>
+      <div className="cell__head">
+        <span className="cell__label" id={`${name}-label`}>
+          {label}
+        </span>
+      </div>
       <div
         className="segmented"
         role="radiogroup"
         aria-labelledby={`${name}-label`}
       >
         {options.map((option) => (
-          <label className="segmented__option" key={option.value}>
+          <label
+            className="segmented__option"
+            key={option.value}
+            data-tone={option.tone}
+          >
             <input
               className="segmented__input"
               type="radio"
@@ -206,15 +232,13 @@ function Figure({
   label,
   text,
   tone,
-  className,
 }: {
   label: string;
   text: string | undefined;
   tone: Tone | 'muted';
-  className: string;
 }) {
   return (
-    <div className={`strip__item ${className}`}>
+    <div className="strip__item">
       <span className="strip__label">{label}</span>{' '}
       <span
         className="strip__value"
@@ -226,7 +250,7 @@ function Figure({
   );
 }
 
-/** Net P&L, risk and R under the ticket's double rule. */
+/** Net P&L, risk, R and planned R:R, as four cells under the fields. */
 export function ResultStrip({ preview }: { preview: Preview }) {
   const net = preview.netPnl ? formatMoney(preview.netPnl) : undefined;
   const r = preview.rMultiple ? formatR(preview.rMultiple) : undefined;
@@ -238,25 +262,23 @@ export function ResultStrip({ preview }: { preview: Preview }) {
       aria-live="polite"
       aria-atomic="true"
     >
-      <Figure
-        label="Net P&L"
-        text={net?.text}
-        tone={net?.tone ?? 'muted'}
-        className="strip__item--net"
-      />
+      <Figure label="Net P&L" text={net?.text} tone={net?.tone ?? 'muted'} />
       <Figure
         label="Risk"
         text={
           preview.initialRisk ? formatAmount(preview.initialRisk) : undefined
         }
-        tone="muted"
-        className="strip__item--risk"
+        tone="neutral"
       />
+      <Figure label="R multiple" text={r?.text} tone={r?.tone ?? 'muted'} />
       <Figure
-        label="R multiple"
-        text={r?.text}
-        tone={r?.tone ?? 'muted'}
-        className="strip__item--r"
+        label="Planned R:R"
+        text={
+          preview.plannedRewardRisk
+            ? formatRewardRisk(preview.plannedRewardRisk)
+            : undefined
+        }
+        tone="neutral"
       />
     </div>
   );
@@ -265,7 +287,7 @@ export function ResultStrip({ preview }: { preview: Preview }) {
 const TOAST_MS = 4000;
 
 /**
- * A small ticket naming what just happened. Goes after 4s, and stays while
+ * A small card naming what just happened. Goes after 4s, and stays while
  * the pointer or focus is on it. The live region is always in the page so
  * screen readers announce the text when it arrives.
  */

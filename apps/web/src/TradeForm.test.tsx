@@ -6,7 +6,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TradeForm } from './TradeForm.tsx';
+import { DialogHarness } from './DialogHarness.tsx';
 import { LAST_TRADE_KEY, type StorageLike } from './lastTrade.ts';
 
 const apiUrl = 'https://api.example.com';
@@ -53,7 +53,7 @@ function setup<S extends StorageLike = ReturnType<typeof memoryStorage>>(
 ) {
   const onSignIn = vi.fn();
   render(
-    <TradeForm
+    <DialogHarness
       apiUrl={apiUrl}
       accessToken={accessToken}
       onSignIn={onSignIn}
@@ -79,6 +79,9 @@ const exact = (text: string) =>
   screen.getByText((_, el) => el?.textContent === text && !el.children.length);
 const save = () =>
   fireEvent.click(screen.getByRole('button', { name: 'Save trade' }));
+// A save closes the dialog and the form goes with it; the next open is fresh.
+const reopen = () =>
+  fireEvent.click(screen.getByRole('button', { name: 'Open trade dialog' }));
 
 function fillExampleA() {
   click('Future');
@@ -95,7 +98,7 @@ function fillExampleA() {
 afterEach(cleanup);
 
 describe('TradeForm saving', () => {
-  it('posts example A with UTC times and resets, keeping type, side and point value', async () => {
+  it('posts example A with UTC times, then opens blank, keeping type, side and point value', async () => {
     const { fetchFn, storage } = setup();
     fillExampleA();
     expect(screen.getByText('+$98.76')).toBeTruthy();
@@ -122,6 +125,9 @@ describe('TradeForm saving', () => {
       openedAt: '2026-11-19T14:30:00.000Z',
       closedAt: '2026-11-19T14:45:00.000Z',
     });
+    // The dialog closed on the 201; the next open starts from the defaults.
+    expect(screen.queryByLabelText('Symbol')).toBeNull();
+    reopen();
     expect(field('Symbol').value).toBe('');
     expect(field('Point value').value).toBe('5');
     expect(field('Entry time').value).toBe('2026-11-19T09:30');
@@ -143,7 +149,8 @@ describe('TradeForm saving', () => {
     type('Stop', '4995');
     expect(screen.getByText('Open')).toBeTruthy();
     expect(screen.getByText('$50.00')).toBeTruthy();
-    expect(screen.getAllByText('–')).toHaveLength(2);
+    // Net P&L, R and Planned R:R.
+    expect(screen.getAllByText('–')).toHaveLength(3);
   });
 
   it('shows a loss with the true minus sign and returns to dashes when exit is cleared', () => {
@@ -516,6 +523,29 @@ describe('TradeForm review fixes', () => {
     );
   });
 
+  it('shows Planned R:R from stop and target, and dashes it when the target is cleared', () => {
+    setup();
+    fillExampleA();
+    expect(screen.queryByText('1 : 4.00')).toBeNull();
+    type('Target', '5020');
+    expect(screen.getByText('1 : 4.00')).toBeTruthy();
+    type('Target', '');
+    expect(screen.queryByText('1 : 4.00')).toBeNull();
+  });
+
+  it('dashes Planned R:R when the target or stop is on the wrong side of entry', () => {
+    setup();
+    fillExampleA(); // Future long, entry 5000, stop 4995
+    type('Target', '4990'); // below entry on a long
+    expect(screen.queryByText(/^1 : /)).toBeNull();
+    type('Target', '5000'); // equal to entry
+    expect(screen.queryByText(/^1 : /)).toBeNull();
+    type('Target', '5020');
+    expect(screen.getByText('1 : 4.00')).toBeTruthy();
+    type('Stop', '5005'); // above entry on a long
+    expect(screen.queryByText(/^1 : /)).toBeNull();
+  });
+
   it('makes inputs read-only while saving', async () => {
     let resolve!: (r: Response) => void;
     setup(
@@ -532,7 +562,7 @@ describe('TradeForm review fixes', () => {
     expect(checked('Long')).toBe(true);
     resolve(new Response(JSON.stringify(view()), { status: 201 }));
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
-    expect(field('Symbol').readOnly).toBe(false);
+    expect(screen.queryByLabelText('Symbol')).toBeNull();
   });
 
   it.each([
@@ -541,9 +571,9 @@ describe('TradeForm review fixes', () => {
   ])('ignores Enter during IME composition (%s)', (_n, init) => {
     const { fetchFn } = setup();
     field('Symbol').focus();
-    expect(
-      fireEvent.keyDown(field('Symbol'), { key: 'Enter', ...init }),
-    ).toBe(true);
+    expect(fireEvent.keyDown(field('Symbol'), { key: 'Enter', ...init })).toBe(
+      true,
+    );
     expect(document.activeElement).toBe(field('Symbol'));
     expect(
       fireEvent.keyDown(field('Symbol'), {
