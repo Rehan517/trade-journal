@@ -267,6 +267,8 @@ button (with a + icon) and **Sign out** as a quiet link.
 - The bar wraps on narrow screens in DOM order (brand, nav, New trade, Sign
   out), so the Tab order always matches what's on screen. It never scrolls
   sideways.
+- Nav items: Calendar (`/`) and Trades (`/trades`), real links with
+  `aria-current="page"` on the current one.
 
 ### Buttons
 
@@ -421,11 +423,24 @@ count, not an alarm, so it isn't red (kept).
 
 ### Tables
 
-For the trade list (#8) and the stats tables (#18). Starting point: one
-`--surface` panel; header row in `--t-caps` `--ink-muted` with a `--line`
-rule below, sticky on scroll; rows 44px with `--line` between them;
-numbers in mono, right aligned, P&L and R in gain/loss. Below 640px rows
-become cards; a table never scrolls sideways. #8 settles the detail.
+For the trade list (#8, [trades.md](../spec/trades.md#trade-list-8)) and
+the stats tables (#18).
+
+- A semantic `<table>` in one `--surface` panel with a 16px radius, with a
+  screen-reader caption and `scope="col"` headers.
+- Header row: `--t-caps`, `--ink-muted`, a `--line` rule below, sticky at
+  the top while the page scrolls.
+- Rows 44px with `--line` between them, `--t-body`. Text columns left
+  aligned; numbers in mono with tabular figures, right aligned. P&L and R
+  in gain/loss with their sign; "—" for a value that doesn't exist yet.
+- Side is `▲ Long` / `▼ Short` in `--ink`, never filled: in a table, green
+  and red mean money only.
+- Status is a text badge: **Open** in `--link`, "Closed" in `--ink-muted`.
+- Below 640px the rows become cards (a `<ol>` of `--surface` boxes, 12px
+  radius, two lines each); the table is hidden with `display: none`. A
+  table never scrolls sideways.
+- More rows load with a ghost **Load more** button under the panel, never
+  by infinite scroll.
 
 ### Feedback
 

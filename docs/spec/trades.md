@@ -1,8 +1,8 @@
 # Spec: trades
 
-Status: #5, #6 and #7 approved; redesign changes (date range, planned
-reward to risk, #7 in a dialog) approved in #43 · Issues: #5, #6, #7,
-#40, #41 (later: #8, #9, #10) · Last updated: 2026-11-23
+Status: #5, #6 and #7 approved; redesign changes approved in #43;
+#8 trade list awaiting review · Issues: #5, #6, #7,
+#40, #41, #8 (later: #9, #10) · Last updated: 2026-11-23
 
 ## Summary
 
@@ -20,7 +20,7 @@ settings) here and don't change the earlier sections without updating them.
 | #6       | API                                                                           | Done    |
 | #7       | Quick-entry form                                                              | Done    |
 | #40, #41 | Redesign: date range, planned R:R, form in a dialog ([calendar](calendar.md)) | This PR |
-| #8       | Trade list                                                                    | Later   |
+| #8       | Trade list                                                                    | This PR |
 | #9       | Edit, close, delete                                                           | Later   |
 | #10      | Symbol point values                                                           | Later   |
 
@@ -827,6 +827,187 @@ is really tested (and covers a zone with DST).
 - Point values per symbol and symbol suggestions (#10).
 - Setup and mistake tags, emotion notes and screenshots (later issues).
 - A light theme. The redesign is dark only.
+
+## Trade list (#8)
+
+A **Trades** page: every trade, newest first, as a table on desktop and as
+cards on a phone. It's the second page, so this issue also adds routing.
+Everything lives in `apps/web`. **No API or schema changes**: the page uses
+`GET /trades` (#6) as it is, without `from` or `to`, and the `listTrades`
+client from the calendar.
+
+### Additions beyond issue #8
+
+| Addition                                                   | Why                                                                                      |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| A small in-house router, with `/` (Calendar) and `/trades` | Two pages need real URLs, back and forward, and nav links that open in a new tab         |
+| "Trades" in the top bar's nav                              | The nav only lists pages that exist (calendar decision 5)                                |
+| **Load more** button rather than infinite scroll           | Works from the keyboard and with a screen reader, and never loads pages nobody asked for |
+| The list refreshes after a save from the Trades page       | The new trade shows straight away, the same way the calendar refreshes                   |
+
+### Decisions (#8)
+
+1. **Routing is in-house, about 40 lines.** A `useRoute()` hook reads
+   `location.pathname`, listens to `popstate`, and a `navigate(path)`
+   helper calls `history.pushState`. Two routes don't justify React
+   Router's bundle and API. If routes get nested or need parameters (#13's
+   detail view), this is revisited there.
+   - `/` is the Calendar, `/trades` is Trades. Any other path shows the
+     Calendar and is replaced with `/` (`history.replaceState`).
+   - Nav items are real `<a href>` links. A plain left click is handled in
+     the app (`pushState`, no reload); a click with Ctrl, ⌘, Shift or Alt,
+     or a middle click, is left to the browser, so "open in new tab"
+     works.
+   - CloudFront already serves `index.html` for unknown paths
+     (`infra/lib/web-hosting.ts`), so a reload or a shared link to
+     `/trades` works with no infra change.
+   - On a route change the page scrolls to the top and focus moves to its
+     `<h1>` (`tabIndex={-1}`), so screen readers announce the new page.
+     `document.title` becomes "Trades · Trade Journal" or "Calendar · Trade
+     Journal".
+   - Signing in always returns to `/` (the OIDC `redirect_uri` is the
+     origin). Keeping the path through sign-in is out of scope.
+2. **The list is the API's order: newest `openedAt` first** (API decision
+   4). There's no sorting control. Filters are #16.
+3. **25 trades per page.** The first page loads when the page opens.
+   **Load more** fetches the next page with `nextCursor` and appends it.
+   The button is shown only while the last page returned a `nextCursor`
+   and at least one trade (as DynamoDB does, the last page can come back
+   with a cursor and the next one empty).
+4. **After a save, the list reloads its first page.** Pages loaded with
+   Load more are dropped. One source of truth, like the calendar (its
+   decision 8), and a back-filled trade lands in its right place.
+5. **Times are local** (vision: shown in the user's time zone), unlike the
+   calendar's New York days. The date is short (`Nov 19`, with the year
+   when it isn't the current year) and the time uses the locale's 12- or
+   24-hour clock, both from `Intl.DateTimeFormat`.
+6. **Rows don't open anything yet.** The trade detail (#13) and editing
+   (#9) decide what a row does. Until then a row isn't a link or a button,
+   so it doesn't look clickable.
+
+### Columns
+
+| Column  | Shows                                                 | Align | Notes                                          |
+| ------- | ----------------------------------------------------- | ----- | ---------------------------------------------- |
+| Opened  | `Nov 19 · 09:41` (local)                              | Left  | `<time datetime="…">` with the UTC `openedAt`  |
+| Symbol  | `MES`                                                 | Left  | Mono                                           |
+| Side    | `▲ Long` / `▼ Short`                                  | Left  | Glyph and word in `--ink`; no fill or colour   |
+| Qty     | `2`                                                   | Right | As stored; mono                                |
+| Net P&L | `+$98.76`, `−$21.62`, `$0.00`; "—" when open          | Right | `formatMoney`, gain/loss colour, always signed |
+| R       | `+1.98 R`, `−1.08 R`; "—" without a stop or when open | Right | `formatR`                                      |
+| Status  | **Open** badge (`--link`) or "Closed" (`--ink-muted`) | Left  | The badge is text, so it reads without colour  |
+
+- Side isn't coloured in the list: green and red there mean money, and a
+  column of filled Long and Short badges would compete with P&L.
+- Wins and losses read without colour: every amount carries its sign
+  (design principle 3), and an open trade says "Open" and shows "—".
+
+### Layout
+
+**Desktop and tablet (≥ 640px).** A semantic `<table>` in one `--surface`
+panel with a 16px radius, inside the page's `max-width`:
+
+```
+Trades
+┌──────────────────────────────────────────────────────────────────────┐
+│ OPENED          SYMBOL  SIDE      QTY      NET P&L        R   STATUS │
+├──────────────────────────────────────────────────────────────────────┤
+│ Nov 19 · 09:41  MES     ▲ Long      2      +$98.76   +1.98 R  Closed │
+│ Nov 19 · 10:03  MNQ     ▼ Short     1      −$21.62   −1.08 R  Closed │
+│ Nov 19 · 10:30  AAPL    ▲ Long     50            —         —  [Open] │
+└──────────────────────────────────────────────────────────────────────┘
+                              [ Load more ]
+```
+
+- Header row: `--t-caps`, `--ink-muted`, a `--line` rule below, sticky at
+  the top of the page while scrolling (`position: sticky`).
+- Rows 44px, `--line` between them, `--t-body`; numbers in mono with
+  tabular figures; P&L and R at `--t-figure` weight 600.
+- The table has a caption for screen readers ("Your trades, newest first")
+  and `scope="col"` headers.
+- Between 640px and the full width, Qty and Status narrow first. The table
+  never scrolls sideways.
+
+**Phone (< 640px).** An ordered list of cards, one per trade, in the same
+order. Each card is a `--surface` box with a 12px radius:
+
+```
+┌──────────────────────────────┐
+│ MES ▲ Long          +$98.76  │
+│ Nov 19 · 09:41 · 2   +1.98 R │
+└──────────────────────────────┘
+┌──────────────────────────────┐
+│ AAPL ▲ Long  [Open]        — │
+│ Nov 19 · 10:30 · 50        — │
+└──────────────────────────────┘
+```
+
+- Line 1: symbol, side, and the Open badge for an open trade; net P&L on
+  the right.
+- Line 2: date and time, then quantity; R on the right.
+- The table and the card list are both rendered; CSS shows one and hides
+  the other with `display: none`, so only one is announced.
+- Nothing scrolls sideways at 320px.
+
+### States
+
+| State                  | Shows                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| First load             | The panel with its header and "Loading…" in a persistent `role="status"` outside it         |
+| Trades                 | The rows, and Load more while there's a next page                                           |
+| No trades              | An empty panel: "No trades yet." and a **Log a trade** button (ghost) that opens the dialog |
+| Loading more           | Load more reads "Loading…" with `aria-busy`, and its rows append when they arrive           |
+| 401                    | Alert "Your session has expired. Sign in again." with a Sign in button                      |
+| Other first-load error | Alert "Couldn't load your trades. Check your connection and try again." with Retry          |
+| Load more error        | The rows stay; the same alert sits under them with Retry, which tries that page again       |
+
+- Leaving the page aborts its requests, so a slow response never lands on
+  the other page.
+- After Load more, focus stays on the button (or moves to the first new
+  row if the button disappears), so keyboard users keep their place.
+
+### Top bar
+
+The nav gains **Trades** after Calendar. The current page's link has
+`aria-current="page"`. **New trade** works the same on both pages; saving
+from the Trades page reloads the list (decision 4) and saving from the
+Calendar refreshes the month.
+
+### Automated tests (#8)
+
+Vitest and Testing Library in `apps/web`, with a stubbed `fetch`.
+
+- **Router**: `/trades` renders Trades and `/` the Calendar; an unknown
+  path renders the Calendar and is replaced with `/`; clicking a nav link
+  pushes the path without a reload, and a click with ⌘ or Ctrl doesn't;
+  back and forward (`popstate`) switch pages; focus moves to the new `<h1>`
+  and `document.title` changes; `aria-current` follows the page.
+- **List**: the first request is `GET /trades?limit=25` with the bearer
+  token; rows render in order with every column formatted as above
+  (closed win, closed loss, breakeven, open, no stop, a future, a short).
+- **Load more**: appends the next page with the cursor; hides when there's
+  no `nextCursor` or a page comes back empty; a failed Load more keeps the
+  rows and Retry fetches the same page again; focus stays on the button.
+- **States**: loading, empty (Log a trade opens the dialog), 401 (Sign in),
+  error with Retry.
+- **Saving**: a save from the Trades page closes the dialog, shows "Trade
+  saved" and reloads the first page.
+- **Accessibility**: the table has a caption and column headers; an open
+  trade's row reads "Open" and "—"; amounts carry their sign.
+
+### Manual check
+
+- Desktop: the table at 1280px with a mix of trades; Load more; back and
+  forward between Calendar and Trades; open Trades in a new tab with
+  ⌘-click; reload on `/trades`.
+- Phone (375px and 320px): cards, no sideways scroll.
+
+### Out of scope for #8
+
+- Filters and search (#16), and sorting.
+- Opening a trade: detail (#13), edit, close and delete (#9).
+- A total count of trades (the API doesn't return one).
+- Keeping the path through sign-in.
 
 ## Open questions
 
