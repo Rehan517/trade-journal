@@ -70,7 +70,10 @@ function instantKey(s: string, digits: number): string {
 }
 
 /** -1, 0 or 1, or undefined when either value isn't a valid timestamp. */
-function compareInstants(a: unknown, b: unknown): -1 | 0 | 1 | undefined {
+export function compareInstants(
+  a: unknown,
+  b: unknown,
+): -1 | 0 | 1 | undefined {
   if (
     !IsoDateTimeSchema.safeParse(a).success ||
     !IsoDateTimeSchema.safeParse(b).success

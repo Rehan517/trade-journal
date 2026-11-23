@@ -16,7 +16,12 @@ export type TradeMathInput = Pick<
   Trade,
   'instrumentType' | 'side' | 'quantity' | 'entryPrice'
 > &
-  Partial<Pick<Trade, 'pointValue' | 'exitPrice' | 'fees' | 'plannedStop'>>;
+  Partial<
+    Pick<
+      Trade,
+      'pointValue' | 'exitPrice' | 'fees' | 'plannedStop' | 'plannedTarget'
+    >
+  >;
 
 export type TradeOutcome = 'win' | 'loss' | 'breakeven';
 
@@ -77,6 +82,19 @@ export function rMultiple(t: TradeMathInput): string | undefined {
   const risk = riskValue(t);
   if (net === undefined || risk === undefined) return undefined;
   return formatDecimalFixed(divideDecimal(net, risk, 2), 2);
+}
+
+/** |target - entry| / |entry - stop|, exactly 2 dp, half away from zero. */
+export function plannedRewardRisk(t: TradeMathInput): string | undefined {
+  if (t.plannedStop === undefined || t.plannedTarget === undefined) {
+    return undefined;
+  }
+  const entry = parseDecimal(t.entryPrice);
+  const reward = absDecimal(
+    subtractDecimal(parseDecimal(t.plannedTarget), entry),
+  );
+  const risk = absDecimal(subtractDecimal(entry, parseDecimal(t.plannedStop)));
+  return formatDecimalFixed(divideDecimal(reward, risk, 2), 2);
 }
 
 export function tradeOutcome(t: TradeMathInput): TradeOutcome | undefined {

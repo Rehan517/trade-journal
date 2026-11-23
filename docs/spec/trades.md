@@ -1,7 +1,7 @@
 # Spec: trades
 
 Status: #5, #6 and #7 approved; redesign changes (date range, planned
-reward to risk, #7 in a dialog) awaiting review · Issues: #5, #6, #7,
+reward to risk, #7 in a dialog) approved in #43 · Issues: #5, #6, #7,
 #40, #41 (later: #8, #9, #10) · Last updated: 2026-11-23
 
 ## Summary
@@ -366,9 +366,15 @@ decision 2). `GET /trades` takes two more optional query parameters:
 | `to`   | UTC ISO 8601 | Only trades with `openedAt` < `to`   |
 
 - Either can be used alone. With both, `from` must be before `to`;
-  otherwise 400 with `fieldErrors.to` = `to must be after from`.
+  otherwise 400 with `fieldErrors.to` = `to must be after from`. The
+  order is compared exactly, like `closedAt` and `openedAt`: sub-millisecond
+  digits count and nothing goes through `Date.parse`. It's only checked
+  when both values are valid, so a bad `from` reports only on `from`.
 - Validated with `z.iso.datetime()`, so a UTC `Z` time is required and an
-  offset such as `+11:00` is 400. The calendar always sends UTC.
+  offset such as `+11:00` is 400. The calendar always sends UTC. A bound
+  with more than 9 fractional digits is 400
+  (`Use at most 9 fractional second digits`): stored keys keep 9, so a
+  finer bound would be cut and could let in a trade just outside it.
 - The range goes into the `byOpenedAt` key condition, so DynamoDB reads
   only that range (no filter expression, no extra read cost). Bounds are
   padded the same way as `openedAtKey` (decision 5), with no `#<id>` suffix:
@@ -385,8 +391,11 @@ decision 2). `GET /trades` takes two more optional query parameters:
 
 - Order and paging are unchanged: newest first, `limit` and `nextCursor`.
   The client sends the same `from` and `to` with every page.
-- A cursor from outside the range makes DynamoDB reject the query
-  (`ValidationException`). That's 400 `cursor is not valid`, not 500.
+- A cursor from outside the range is 400 `cursor is not valid`, not 500.
+  Both stores check the cursor's `openedAtKey` against the range with the
+  same rule before querying, so the 400 doesn't depend on DynamoDB's error
+  wording. A `ValidationException` about the start key from DynamoDB maps
+  to the same 400 as a fallback.
 - No IAM change: the list role is already allowed `Query` on the index.
 
 ### Errors
