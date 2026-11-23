@@ -6,6 +6,7 @@ import {
   initialRisk,
   netPnl,
   parseDecimal,
+  plannedRewardRisk,
   rMultiple,
   type CreateTradeRequestInput,
   type InstrumentType,
@@ -137,6 +138,7 @@ export interface Preview {
   netPnl?: string;
   initialRisk?: string;
   rMultiple?: string;
+  plannedRewardRisk?: string;
 }
 
 const isPositive = (s: string) =>
@@ -157,11 +159,28 @@ function guarded<T>(fn: () => T): T | undefined {
  * Net P&L, planned risk and R for what's typed so far. The shared maths only
  * runs on values that pass their field checks, since it throws on the rest.
  */
+/** Long: stop < entry < target. Short: target < entry < stop. */
+function sidesOk(
+  side: FormValues['side'],
+  entry: string,
+  stop: string,
+  target: string,
+): boolean {
+  const e = parseDecimal(entry);
+  const below = side === 'long' ? stop : target;
+  const above = side === 'long' ? target : stop;
+  return (
+    compareDecimal(parseDecimal(below), e) < 0 &&
+    compareDecimal(parseDecimal(above), e) > 0
+  );
+}
+
 export function computePreview(values: FormValues): Preview {
   const quantity = values.quantity.trim();
   const entryPrice = values.entryPrice.trim();
   const exitPrice = values.exitPrice.trim();
   const stop = values.plannedStop.trim();
+  const target = values.plannedTarget.trim();
   const fees = values.fees.trim();
   const pointValue = values.pointValue.trim();
   const future = values.instrumentType === 'future';
@@ -205,5 +224,26 @@ export function computePreview(values: FormValues): Preview {
         )
       : undefined;
 
-  return { netPnl: net, initialRisk: risk, rMultiple: r };
+  // Reward over risk needs the stop and target on their own sides of the
+  // entry, as the schema requires; otherwise it would show for a plan that
+  // can't be saved.
+  const planned =
+    stopOk &&
+    isPositive(target) &&
+    sidesOk(values.side, entryPrice, stop, target)
+      ? guarded(() =>
+          plannedRewardRisk({
+            ...base,
+            plannedStop: stop,
+            plannedTarget: target,
+          }),
+        )
+      : undefined;
+
+  return {
+    netPnl: net,
+    initialRisk: risk,
+    rMultiple: r,
+    plannedRewardRisk: planned,
+  };
 }
