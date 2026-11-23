@@ -1,6 +1,6 @@
 # Product vision
 
-Status: draft · Last updated: 2026-11-18
+Status: draft · Last updated: 2026-11-23
 
 ## Summary
 
@@ -69,6 +69,10 @@ Goal: replace a paid journal for my paper trading.
 
 ### Reviewing trades
 
+- **P&L calendar as the home screen:** each New York trading day of the
+  month shaded green or red by net P&L, with weekly totals and month stats.
+  Logging opens from it. (Moved from Later features on 2026-11-23;
+  [calendar spec](../spec/calendar.md).)
 - Trade list, newest first, showing P&L and R. Filter by date range,
   symbol, setup, mistake, and win/loss.
 - Trade detail view with notes and screenshots.
@@ -93,7 +97,8 @@ Deferred from the MVP:
 
 - **Multiple accounts** labelled paper, live or prop, with stats per
   account. Needed when moving off paper trading.
-- **Time-based stats:** P&L by time of day and day of week, P&L calendar.
+- **Time-based stats:** P&L by time of day and day of week. (The P&L
+  calendar moved into the MVP.)
 - **Daily journal:** a pre-market plan (bias, key levels, rules for the day)
   and an end-of-day review (what went well, what didn't, lessons), linked to
   that day's trades.
