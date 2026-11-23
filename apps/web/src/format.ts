@@ -82,3 +82,20 @@ export function formatShortDate(local: string, currentYear: number): string {
     ...(date.getFullYear() === currentYear ? {} : { year: 'numeric' }),
   }).format(date);
 }
+
+/** The trade list's local time of day, in the locale's 12- or 24-hour clock. */
+export function formatTimeOfDay(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+/** `Nov 19 · 09:41` in the device's time zone; the year when not current. */
+export function formatOpened(iso: string, currentYear: number): string {
+  const date = formatShortDate(iso, currentYear);
+  const time = formatTimeOfDay(iso);
+  return date && time ? `${date} · ${time}` : `${date}${time}`;
+}

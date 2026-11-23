@@ -867,6 +867,10 @@ client from the calendar.
      Journal".
    - Signing in always returns to `/` (the OIDC `redirect_uri` is the
      origin). Keeping the path through sign-in is out of scope.
+   - Back or forward while the New trade dialog is open changes the page
+     behind it but leaves the dialog and its values alone. Focus stays in
+     the dialog, and on close it goes to the new page's `<h1>` if the
+     button that opened the dialog has gone.
 2. **The list is the API's order: newest `openedAt` first** (API decision
    4). There's no sorting control. Filters are #16.
 3. **25 trades per page.** The first page loads when the page opens.
@@ -876,7 +880,10 @@ client from the calendar.
    with a cursor and the next one empty).
 4. **After a save, the list reloads its first page.** Pages loaded with
    Load more are dropped. One source of truth, like the calendar (its
-   decision 8), and a back-filled trade lands in its right place.
+   decision 8), and a back-filled trade lands in its right place. The old
+   rows stay on screen until the new page arrives; Load more waits while
+   that reload is in flight, and a Load more from before it is discarded.
+   A silent sign-in renewal doesn't reload the list.
 5. **Times are local** (vision: shown in the user's time zone), unlike the
    calendar's New York days. The date is short (`Nov 19`, with the year
    when it isn't the current year) and the time uses the locale's 12- or
@@ -922,14 +929,19 @@ Trades
 - Header row: `--t-caps`, `--ink-muted`, a `--line` rule below, sticky at
   the top of the page while scrolling (`position: sticky`).
 - Rows 44px, `--line` between them, `--t-body`; numbers in mono with
-  tabular figures; P&L and R at `--t-figure` weight 600.
+  tabular figures; P&L and R at `--t-week` (15px) weight 600, so a wide
+  figure fits the column. "—" is `--ink-muted`. Status has 24px of space
+  on its left, so it never runs into R.
 - The table has a caption for screen readers ("Your trades, newest first")
   and `scope="col"` headers.
-- Between 640px and the full width, Qty and Status narrow first. The table
-  never scrolls sideways.
+- Between 640px and 899px, Qty and Status narrow first, Symbol may wrap,
+  and Opened breaks onto two lines (date, then time). The table never
+  scrolls sideways, even with a 12-character symbol, a past-year date and
+  a 7-figure P&L.
 
 **Phone (< 640px).** An ordered list of cards, one per trade, in the same
-order. Each card is a `--surface` box with a 12px radius:
+order. Each card is a standalone `--surface` box with a 12px radius and a
+`--line` border, 8px apart, with no panel around the list:
 
 ```
 ┌──────────────────────────────┐
@@ -964,7 +976,12 @@ order. Each card is a `--surface` box with a 12px radius:
 - Leaving the page aborts its requests, so a slow response never lands on
   the other page.
 - After Load more, focus stays on the button (or moves to the first new
-  row if the button disappears), so keyboard users keep their place.
+  row if the button disappears), so keyboard users keep their place. After
+  Retry on a failed Load more it returns to the button, and a session
+  alert under the rows takes focus on its Sign in button.
+- Metrics the page formats (`netPnl`, `rMultiple`) are checked as decimal
+  strings when a page arrives; a malformed one is a bad response (the
+  error alert), never a crash.
 
 ### Top bar
 

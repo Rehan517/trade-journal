@@ -156,15 +156,17 @@ export async function listTrades(
       `Response is invalid: ${parsed.error.message}`,
     );
   }
-  // The calendar does exact maths on every net P&L, so a malformed one is a
+  // The pages do exact maths and formatting on these, so a malformed one is a
   // bad response here, not a crash at render time.
   for (const trade of parsed.data.items) {
-    const net = trade.metrics.netPnl;
-    if (net !== undefined && !SIGNED_DECIMAL.test(net)) {
-      throw new ApiError(
-        INVALID_RESPONSE_STATUS,
-        'Response is invalid: a trade has a malformed netPnl',
-      );
+    for (const name of ['netPnl', 'rMultiple'] as const) {
+      const value = trade.metrics[name];
+      if (value !== undefined && !SIGNED_DECIMAL.test(value)) {
+        throw new ApiError(
+          INVALID_RESPONSE_STATUS,
+          `Response is invalid: a trade has a malformed ${name}`,
+        );
+      }
     }
   }
   return parsed.data;

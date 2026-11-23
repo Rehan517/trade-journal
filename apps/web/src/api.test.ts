@@ -199,6 +199,35 @@ describe('listTrades', () => {
     },
   );
 
+  it.each(['abc', '1e5', '', '1.', '.5', '+5', ' 5'])(
+    'throws status 0 when a trade has a malformed rMultiple %j',
+    async (rMultiple) => {
+      const bad = { ...trade, metrics: { netPnl: '1', rMultiple } };
+      const err = await listTrades(
+        apiUrl,
+        'tok',
+        {},
+        respond(JSON.stringify({ items: [trade, bad] })),
+      ).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(0);
+    },
+  );
+
+  it.each(['0', '-1.08', '1.98', '12'])('accepts rMultiple %s', async (r) => {
+    const page = await listTrades(
+      apiUrl,
+      'tok',
+      {},
+      respond(
+        JSON.stringify({
+          items: [{ ...trade, metrics: { netPnl: '1', rMultiple: r } }],
+        }),
+      ),
+    );
+    expect(page.items[0]!.metrics.rMultiple).toBe(r);
+  });
+
   it.each(['0', '-21.62', '98.76', '1000'])(
     'accepts netPnl %s',
     async (netPnl) => {
