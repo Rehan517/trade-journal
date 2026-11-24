@@ -1,12 +1,16 @@
 import {
   ErrorBodySchema,
+  ListSymbolsResponseSchema,
   ListTradesResponseSchema,
   MeResponseSchema,
+  SymbolSettingSchema,
   TradeViewSchema,
   type CreateTradeRequestInput,
   type ErrorBody,
+  type ListSymbolsResponse,
   type ListTradesResponse,
   type MeResponse,
+  type SymbolSetting,
   type TradeView,
   type UpdateTradeRequestInput,
 } from '@trade-journal/shared';
@@ -251,4 +255,107 @@ export async function listTrades(
     }
   }
   return parsed.data;
+}
+
+/** Reads a 200 body as JSON; a body that isn't JSON is status 0. */
+async function readJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new ApiError(INVALID_RESPONSE_STATUS, 'Response is not valid JSON');
+  }
+}
+
+/**
+ * GET /symbols: the caller's saved point values, sorted by root (defaults are
+ * not included). Any status but 200 throws an `ApiError` with that status; a
+ * 200 with a bad body throws status 0.
+ */
+export async function listSymbols(
+  apiUrl: string,
+  accessToken: string,
+  fetchFn: typeof fetch = (...args) => fetch(...args),
+  signal?: AbortSignal,
+): Promise<ListSymbolsResponse> {
+  const response = await fetchFn(`${apiUrl}/symbols`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+  });
+  if (response.status !== 200) throw new ApiError(response.status);
+  const parsed = ListSymbolsResponseSchema.safeParse(await readJson(response));
+  if (!parsed.success) {
+    throw new ApiError(
+      INVALID_RESPONSE_STATUS,
+      `Response is invalid: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
+}
+
+/**
+ * PUT /symbols/{root} with `{ pointValue }`: creates or replaces the saved
+ * value for a contract root. Resolves with the saved setting on a 200. Any
+ * other status throws an `ApiError` with that status (a 400 carries its
+ * parsed `ErrorBody`); a 200 with a bad body throws status 0.
+ */
+export async function putSymbol(
+  apiUrl: string,
+  accessToken: string,
+  root: string,
+  pointValue: string,
+  fetchFn: typeof fetch = (...args) => fetch(...args),
+  signal?: AbortSignal,
+): Promise<SymbolSetting> {
+  const response = await fetchFn(
+    `${apiUrl}/symbols/${encodeURIComponent(root)}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ pointValue }),
+      signal,
+    },
+  );
+  if (response.status !== 200) {
+    throw new ApiError(
+      response.status,
+      undefined,
+      await readErrorBody(response),
+    );
+  }
+  const parsed = SymbolSettingSchema.safeParse(await readJson(response));
+  if (!parsed.success) {
+    throw new ApiError(
+      INVALID_RESPONSE_STATUS,
+      `Response is invalid: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
+}
+
+/**
+ * DELETE /symbols/{root}. Resolves on a 204, and on a 404 (nothing is saved
+ * either way). Any other status throws an `ApiError` with that status.
+ */
+export async function deleteSymbol(
+  apiUrl: string,
+  accessToken: string,
+  root: string,
+  fetchFn: typeof fetch = (...args) => fetch(...args),
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetchFn(
+    `${apiUrl}/symbols/${encodeURIComponent(root)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal,
+    },
+  );
+  if (response.status !== 204 && response.status !== 404) {
+    throw new ApiError(response.status);
+  }
 }

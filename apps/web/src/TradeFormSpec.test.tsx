@@ -57,11 +57,14 @@ const respond = (body: unknown, status: number) =>
     Promise.resolve(new Response(JSON.stringify(body), { status })),
   ) as unknown as typeof fetch;
 
+const SAVED: ReadonlyMap<string, string> = new Map([['MES', '5']]);
+
 function setup(
   fetchFn: typeof fetch = respond(view(), 201),
   storage:
     Store | { getItem: () => never; setItem: () => never } = memoryStorage(),
 ) {
+  // MES is saved as 5, so saving an MES future sends only the trade (#10).
   clock = new Date(2026, 10, 19, 9, 30, 15);
   const onSignIn = vi.fn();
   render(
@@ -72,6 +75,7 @@ function setup(
       fetchFn={fetchFn}
       now={now}
       storage={storage}
+      symbols={SAVED}
     />,
   );
   return { fetchFn, storage, onSignIn };
@@ -99,8 +103,10 @@ const bodyOf = (fetchFn: typeof fetch, call = 0) =>
 function errorOf(label: string): string | undefined {
   const ids = field(label).getAttribute('aria-describedby');
   if (!ids) return undefined;
+  // The hint (#10) is described by too, but it isn't the error.
   return ids
     .split(/\s+/)
+    .filter((id) => id.endsWith('-error'))
     .map((id) => document.getElementById(id)?.textContent ?? '')
     .join(' ');
 }
@@ -223,7 +229,7 @@ describe('submit', () => {
     expect(body.closedAt).toBe('2026-07-01T19:45:00.000Z');
   });
 
-  it('opens blank except type, side and point value, with entry time set to now', async () => {
+  it('opens blank except type and side, with entry time set to now', async () => {
     setup();
     click('Future');
     click('Short');
@@ -256,7 +262,7 @@ describe('submit', () => {
       expect(field(l).value, l).toBe('');
     }
     expect(field('Entry time').value).toBe('2026-11-19T10:05');
-    expect(field('Point value').value).toBe('5');
+    expect(field('Point value').value).toBe('');
     expect(checked('Future')).toBe(true);
     expect(checked('Short')).toBe(true);
     expect(document.activeElement).toBe(field('Symbol'));
@@ -1228,14 +1234,6 @@ describe('defaults', () => {
       '{"instrumentType":"future","side":"flat","pointValue":"5"}',
     ],
     ['missing side', '{"instrumentType":"future"}'],
-    [
-      'a bad point value',
-      '{"instrumentType":"future","side":"short","pointValue":"abc"}',
-    ],
-    [
-      'a zero point value',
-      '{"instrumentType":"future","side":"short","pointValue":"0"}',
-    ],
   ])('falls back to stock / long for %s', (_n, raw) => {
     setup(undefined, memoryStorage(raw));
     expect(checked('Stock')).toBe(true);
@@ -1256,7 +1254,6 @@ describe('defaults', () => {
     expect(JSON.parse(store.data.get('tradeJournal.lastTrade.v1')!)).toEqual({
       instrumentType: 'future',
       side: 'short',
-      pointValue: '2',
     });
   });
 
@@ -1277,7 +1274,8 @@ describe('defaults', () => {
       );
       expect(checked('Future')).toBe(true);
       expect(checked('Short')).toBe(true);
-      expect(field('Point value').value).toBe('5');
+      // An old entry's point value is ignored (#10 decision 11).
+      expect(field('Point value').value).toBe('');
     } finally {
       window.localStorage.removeItem(KEY);
     }

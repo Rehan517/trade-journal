@@ -22,6 +22,8 @@ export interface ApiProps {
   readonly userPoolClient: cognito.IUserPoolClient;
   /** Trades table; has the `byOpenedAt` local secondary index. */
   readonly table: dynamodb.ITableV2;
+  /** Symbols table (point values); keys only, no indexes. */
+  readonly symbolsTable: dynamodb.ITableV2;
 }
 
 /**
@@ -94,6 +96,23 @@ export class Api extends Construct {
       tableEnv,
     );
 
+    const symbolsEnv = { TABLE_NAME: props.symbolsTable.tableName };
+    const listSymbolsFunction = makeFunction(
+      'ListSymbolsFunction',
+      'list-symbols.ts',
+      symbolsEnv,
+    );
+    const putSymbolFunction = makeFunction(
+      'PutSymbolFunction',
+      'put-symbol.ts',
+      symbolsEnv,
+    );
+    const deleteSymbolFunction = makeFunction(
+      'DeleteSymbolFunction',
+      'delete-symbol.ts',
+      symbolsEnv,
+    );
+
     // One action each, on exactly one resource. No grant* helpers: they add
     // Scan, BatchGetItem and more. Query on an index is authorized against
     // the index ARN, so the list role gets no table-level permission.
@@ -130,6 +149,25 @@ export class Api extends Construct {
       }),
     );
 
+    listSymbolsFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:Query'],
+        resources: [props.symbolsTable.tableArn],
+      }),
+    );
+    putSymbolFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:PutItem'],
+        resources: [props.symbolsTable.tableArn],
+      }),
+    );
+    deleteSymbolFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:DeleteItem'],
+        resources: [props.symbolsTable.tableArn],
+      }),
+    );
+
     this.httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
       apiName: 'trade-journal-dev',
       createDefaultStage: false,
@@ -141,6 +179,7 @@ export class Api extends Construct {
           apigwv2.CorsHttpMethod.OPTIONS,
           apigwv2.CorsHttpMethod.PATCH,
           apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.PUT,
         ],
         allowHeaders: ['authorization', 'content-type'],
         maxAge: cdk.Duration.days(1),
@@ -220,6 +259,33 @@ export class Api extends Construct {
       integration: new integrations.HttpLambdaIntegration(
         'DeleteTradeIntegration',
         deleteTradeFunction,
+      ),
+    });
+
+    this.httpApi.addRoutes({
+      path: '/symbols',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new integrations.HttpLambdaIntegration(
+        'ListSymbolsIntegration',
+        listSymbolsFunction,
+      ),
+    });
+
+    this.httpApi.addRoutes({
+      path: '/symbols/{root}',
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: new integrations.HttpLambdaIntegration(
+        'PutSymbolIntegration',
+        putSymbolFunction,
+      ),
+    });
+
+    this.httpApi.addRoutes({
+      path: '/symbols/{root}',
+      methods: [apigwv2.HttpMethod.DELETE],
+      integration: new integrations.HttpLambdaIntegration(
+        'DeleteSymbolIntegration',
+        deleteSymbolFunction,
       ),
     });
 

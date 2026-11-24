@@ -1448,6 +1448,9 @@ them and lets the trader change them. Areas: `packages/shared`, `apps/api`,
     `GET /symbols` when it mounts and keeps the result. The dialog and the
     Settings page both read it, and every save, PUT or DELETE updates it.
     Until it arrives, or if it fails, the form fills from defaults only.
+    When it arrives, a value the open form filled in is refilled by the
+    usual rule (decision 6). Otherwise the default would stay, and saving
+    would log the trade at it and then save it over the trader's value.
 11. **`lastTrade` stops holding a point value.** This replaces that part
     of #7 decision 6. `LastTradeSchema` keeps type and side and drops
     `pointValue`, so an old stored entry still parses and its point value
@@ -1618,10 +1621,12 @@ Saves as MES.
   exactly its one action on the symbols table ARN and nothing on the
   Trades table; the table has `pk` and `sk`; CORS allows `PUT`.
 - **Web:**
-  - **Acceptance 1:** save an MES future with point value `5` on a user
-    with no settings, and see one `PUT /symbols/MES` with `5`. Open New
-    trade again, choose Future, type `MESZ6`: point value is `5`, the hint
-    says "Saved for MES.", and saving sends no PUT.
+  - **Acceptance 1:** on a user with no settings, choose Future and type
+    `MESZ6`: point value is `5` from the default, and saving sends no PUT.
+    Save a `ZNH7` future (no default) with `1000` and see one
+    `PUT /symbols/ZN` with `1000`. Open New trade again, choose Future,
+    type `ZNM7`: point value is `1000`, the hint says "Saved for ZN.", and
+    saving sends no PUT.
   - **Acceptance 2:** change MES to `6` on the Settings page, then open an
     existing MES trade in Edit. It still shows `5`, and the list's P&L is
     unchanged.

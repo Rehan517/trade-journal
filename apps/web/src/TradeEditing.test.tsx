@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from 'react-oidc-context';
 import { AuthView } from './AuthView.tsx';
+import { withSymbols } from './testSymbols.ts';
 import { LAST_TRADE_KEY } from './lastTrade.ts';
 
 vi.mock('react-oidc-context', () => ({
@@ -83,7 +84,7 @@ function setup(
         (call.method === 'GET' ? json({ items }) : json({}, 500)),
     );
   }) as unknown as typeof fetch;
-  render(<AuthView config={config} fetchFn={fetchFn} />);
+  render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
   const writes = () => calls.filter((c) => c.method !== 'GET');
   const lists = () => calls.filter((c) => c.method === 'GET');
   return { calls, writes, lists };

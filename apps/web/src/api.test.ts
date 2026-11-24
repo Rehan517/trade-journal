@@ -3,9 +3,12 @@ import {
   ApiError,
   INVALID_RESPONSE_STATUS,
   createTrade,
+  deleteSymbol,
   deleteTrade,
   fetchMe,
+  listSymbols,
   listTrades,
+  putSymbol,
   updateTrade,
 } from './api.ts';
 
@@ -431,6 +434,139 @@ describe('deleteTrade', () => {
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(code);
+  });
+});
+
+const setting = {
+  root: 'MES',
+  pointValue: '5',
+  updatedAt: '2026-11-19T14:31:00.000Z',
+};
+
+describe('listSymbols', () => {
+  it('GETs /symbols with the bearer token and returns the items', async () => {
+    const fetchFn = respond(JSON.stringify({ items: [setting] }));
+    await expect(listSymbols(apiUrl, 'tok', fetchFn)).resolves.toEqual({
+      items: [setting],
+    });
+    const [url, init] = vi.mocked(fetchFn).mock.calls[0]!;
+    expect(url).toBe(`${apiUrl}/symbols`);
+    expect(init?.method).toBe('GET');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+  });
+
+  it.each([401, 500])('throws an ApiError carrying status %i', async (code) => {
+    const fetchFn = respond(JSON.stringify({ message: 'x' }), code);
+    const err = await listSymbols(apiUrl, 'tok', fetchFn).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(code);
+  });
+
+  it('throws status 0 for a 200 whose body is not valid', async () => {
+    for (const body of [
+      JSON.stringify({ items: [{ root: 'MESZ6', pointValue: '5' }] }),
+      JSON.stringify({ items: 'no' }),
+      '<html></html>',
+    ]) {
+      const err = await listSymbols(apiUrl, 'tok', respond(body)).catch(
+        (e: unknown) => e,
+      );
+      expect((err as ApiError).status).toBe(INVALID_RESPONSE_STATUS);
+    }
+  });
+});
+
+describe('putSymbol', () => {
+  it('PUTs { pointValue } to /symbols/{root} and returns the setting', async () => {
+    const fetchFn = respond(JSON.stringify(setting));
+    await expect(
+      putSymbol(apiUrl, 'tok', 'MES', '5', fetchFn),
+    ).resolves.toEqual(setting);
+    const [url, init] = vi.mocked(fetchFn).mock.calls[0]!;
+    expect(url).toBe(`${apiUrl}/symbols/MES`);
+    expect(init?.method).toBe('PUT');
+    expect(init?.headers).toEqual({
+      Authorization: 'Bearer tok',
+      'Content-Type': 'application/json',
+    });
+    expect(JSON.parse(init?.body as string)).toEqual({ pointValue: '5' });
+  });
+
+  it('carries a 400 error body', async () => {
+    const body = {
+      message: 'Invalid setting',
+      fieldErrors: { pointValue: ['Must be greater than zero'] },
+      formErrors: [],
+    };
+    const err = await putSymbol(
+      apiUrl,
+      'tok',
+      'MES',
+      '0',
+      respond(JSON.stringify(body), 400),
+    ).catch((e: unknown) => e);
+    expect((err as ApiError).status).toBe(400);
+    expect((err as ApiError).body).toEqual(body);
+  });
+
+  it.each([401, 500])('throws an ApiError carrying status %i', async (code) => {
+    const err = await putSymbol(
+      apiUrl,
+      'tok',
+      'MES',
+      '5',
+      respond('{}', code),
+    ).catch((e: unknown) => e);
+    expect((err as ApiError).status).toBe(code);
+  });
+
+  it('throws status 0 for a 200 whose body is not a setting', async () => {
+    const err = await putSymbol(
+      apiUrl,
+      'tok',
+      'MES',
+      '5',
+      respond(JSON.stringify({ root: 'MES' })),
+    ).catch((e: unknown) => e);
+    expect((err as ApiError).status).toBe(INVALID_RESPONSE_STATUS);
+  });
+});
+
+describe('deleteSymbol', () => {
+  it('DELETEs /symbols/{root} and resolves on a 204', async () => {
+    const fetchFn = vi.fn(() =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    ) as unknown as typeof fetch;
+    await expect(
+      deleteSymbol(apiUrl, 'tok', 'MES', fetchFn),
+    ).resolves.toBeUndefined();
+    const [url, init] = vi.mocked(fetchFn).mock.calls[0]!;
+    expect(url).toBe(`${apiUrl}/symbols/MES`);
+    expect(init?.method).toBe('DELETE');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+  });
+
+  it('resolves on a 404: nothing is saved either way', async () => {
+    await expect(
+      deleteSymbol(
+        apiUrl,
+        'tok',
+        'MES',
+        respond(JSON.stringify({ message: 'Setting not found' }), 404),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it.each([401, 500])('throws an ApiError carrying status %i', async (code) => {
+    const err = await deleteSymbol(
+      apiUrl,
+      'tok',
+      'MES',
+      respond('{}', code),
+    ).catch((e: unknown) => e);
     expect((err as ApiError).status).toBe(code);
   });
 });

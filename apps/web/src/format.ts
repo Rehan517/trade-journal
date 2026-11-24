@@ -1,4 +1,8 @@
-import { formatDecimalFixed, parseDecimal } from '@trade-journal/shared';
+import {
+  decimalToString,
+  formatDecimalFixed,
+  parseDecimal,
+} from '@trade-journal/shared';
 
 const MINUS = '−';
 const NARROW_NBSP = ' ';
@@ -38,6 +42,18 @@ export function formatMoney(exact: string): { text: string; tone: Tone } {
 /** An unsigned amount such as the planned risk: `$1,250.00`. */
 export function formatAmount(exact: string): string {
   return `$${grouped(fixed2(exact).abs)}`;
+}
+
+/**
+ * A point value as money without a sign, exact and never rounded: `$5`,
+ * `$0.50`, `$1,000`, `$0.125`. A fraction shows at least two places.
+ */
+export function formatPointValue(exact: string): string {
+  const [whole = '0', fraction] = decimalToString(parseDecimal(exact)).split(
+    '.',
+  );
+  const shown = fraction === undefined ? '' : `.${fraction.padEnd(2, '0')}`;
+  return `$${grouped(whole)}${shown}`;
 }
 
 /** `+1.98 R` with a narrow no-break space before the R. */

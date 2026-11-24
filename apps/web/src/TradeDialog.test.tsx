@@ -172,7 +172,7 @@ describe('TradeDialog opening', () => {
     openIt();
     expect(field('Symbol').value).toBe('');
     expect(field('Qty').value).toBe('');
-    expect(field('Point value').value).toBe('5');
+    expect(field('Point value').value).toBe('');
     expect(
       (screen.getByRole('radio', { name: 'Future' }) as HTMLInputElement)
         .checked,
@@ -349,7 +349,8 @@ describe('TradeDialog after a 201', () => {
       expect(onSaved).toHaveBeenCalledWith(view());
       expect(onClose).toHaveBeenCalledOnce();
       expect(isOpen()).toBe(false);
-      expect(screen.getByText('Trade saved')).toBeTruthy();
+      // The toast is a state update React renders after onSaved returns.
+      expect(await screen.findByText('Trade saved')).toBeTruthy();
       // Focus goes back once React has committed the close.
       await waitFor(() => expect(document.activeElement).toBe(opener));
     },

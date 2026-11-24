@@ -53,6 +53,14 @@ export class InfraStack extends cdk.Stack {
       ],
     });
 
+    // Per-user symbol point values. Keys only, no indexes.
+    const symbolsTable = new dynamodb.TableV2(this, 'SymbolsTable', {
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billing: dynamodb.Billing.onDemand(),
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // dev only
+    });
+
     const web = new WebHosting(this, 'Web');
 
     const auth = new Auth(this, 'Auth', { webUrl: web.url });
@@ -62,6 +70,7 @@ export class InfraStack extends cdk.Stack {
       userPool: auth.userPool,
       userPoolClient: auth.userPoolClient,
       table: tradesTable,
+      symbolsTable,
     });
 
     // Created last so later constructs can add sources (config.json).

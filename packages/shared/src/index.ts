@@ -66,3 +66,18 @@ export type {
   UpdateTradeRequest,
   UpdateTradeRequestInput,
 } from './trade-api.js';
+export {
+  DEFAULT_POINT_VALUES,
+  ListSymbolsResponseSchema,
+  PutSymbolRequestSchema,
+  RootSchema,
+  SymbolSettingSchema,
+  contractRoot,
+  pointValueFor,
+} from './symbols.js';
+export type {
+  ListSymbolsResponse,
+  PointValueSource,
+  PutSymbolRequest,
+  SymbolSetting,
+} from './symbols.js';

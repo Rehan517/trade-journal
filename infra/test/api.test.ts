@@ -37,9 +37,15 @@ const [distributionId] = first('AWS::CloudFront::Distribution');
 const routes = all('AWS::ApiGatewayV2::Route');
 const routeFor = (key: string) =>
   routes.find(([, r]) => r.Properties.RouteKey === key);
-const [tableId] = first('AWS::DynamoDB::GlobalTable');
+const tableNamed = (prefix: string): [string, Resource] =>
+  all('AWS::DynamoDB::GlobalTable').find(([id]) => id.startsWith(prefix)) ?? [
+    '<missing>',
+    { Properties: {} },
+  ];
+const [tableId] = tableNamed('TradesTable');
+const [symbolsTableId, symbolsTable] = tableNamed('SymbolsTable');
 const functions = all('AWS::Lambda::Function').filter(([id]) =>
-  /^Api(Health|Me|CreateTrade|GetTrade|ListTrades|UpdateTrade|DeleteTrade)Function[0-9A-F]{8}$/.test(
+  /^Api(Health|Me|CreateTrade|GetTrade|ListTrades|UpdateTrade|DeleteTrade|ListSymbols|PutSymbol|DeleteSymbol)Function[0-9A-F]{8}$/.test(
     id,
   ),
 );
@@ -62,19 +68,23 @@ const statementsOf = (name: string): Record<string, unknown>[] => {
     .flatMap(([, p]) => p.Properties.PolicyDocument.Statement);
 };
 const tableArn = { 'Fn::GetAtt': [tableId, 'Arn'] };
+const symbolsArn = { 'Fn::GetAtt': [symbolsTableId, 'Arn'] };
 
-test('stack has exactly one HTTP API, one stage, one authorizer and seven routes', () => {
+test('stack has exactly one HTTP API, one stage, one authorizer and ten routes', () => {
   expect(all('AWS::ApiGatewayV2::Api')).toHaveLength(1);
   expect(all('AWS::ApiGatewayV2::Stage')).toHaveLength(1);
   expect(all('AWS::ApiGatewayV2::Authorizer')).toHaveLength(1);
   expect(routes.map(([, r]) => r.Properties.RouteKey).sort()).toEqual([
+    'DELETE /symbols/{root}',
     'DELETE /trades/{id}',
     'GET /health',
     'GET /me',
+    'GET /symbols',
     'GET /trades',
     'GET /trades/{id}',
     'PATCH /trades/{id}',
     'POST /trades',
+    'PUT /symbols/{root}',
   ]);
   expect(api.Properties.ProtocolType).toBe('HTTP');
 });
@@ -105,6 +115,7 @@ describe('CORS', () => {
       'OPTIONS',
       'PATCH',
       'POST',
+      'PUT',
     ]);
     expect([...cors().AllowHeaders].sort()).toEqual([
       'authorization',
@@ -154,6 +165,9 @@ describe('routes and authorization', () => {
     'GET /trades',
     'PATCH /trades/{id}',
     'DELETE /trades/{id}',
+    'GET /symbols',
+    'PUT /symbols/{root}',
+    'DELETE /symbols/{root}',
   ])('%s uses the same JWT authorizer as GET /me', (key) => {
     const props = routeFor(key)?.[1].Properties;
     expect(props?.AuthorizationType).toBe('JWT');
@@ -184,8 +198,8 @@ describe('$default stage', () => {
 });
 
 describe('Lambda functions', () => {
-  test('there are exactly seven handler functions', () => {
-    expect(functions).toHaveLength(7);
+  test('there are exactly ten handler functions', () => {
+    expect(functions).toHaveLength(10);
   });
 
   test('all are arm64 on Node.js 22.x', () => {
@@ -199,7 +213,7 @@ describe('Lambda functions', () => {
     const roleIds = functions.map(([id]) =>
       roleIdOf(id.replace(/^Api/, '').replace(/Function[0-9A-F]{8}$/, '')),
     );
-    expect(new Set(roleIds).size).toBe(7);
+    expect(new Set(roleIds).size).toBe(10);
     for (const roleId of roleIds) {
       const role = template.toJSON().Resources[roleId];
       expect(role.Properties.Policies).toBeUndefined();
@@ -253,6 +267,91 @@ describe('Lambda functions', () => {
     ]);
   });
 
+  test('ListSymbols can only Query the symbols table', () => {
+    expect(statementsOf('ListSymbols')).toEqual([
+      { Action: 'dynamodb:Query', Effect: 'Allow', Resource: symbolsArn },
+    ]);
+  });
+
+  test('PutSymbol can only PutItem on the symbols table', () => {
+    expect(statementsOf('PutSymbol')).toEqual([
+      { Action: 'dynamodb:PutItem', Effect: 'Allow', Resource: symbolsArn },
+    ]);
+  });
+
+  test('DeleteSymbol can only DeleteItem on the symbols table', () => {
+    expect(statementsOf('DeleteSymbol')).toEqual([
+      { Action: 'dynamodb:DeleteItem', Effect: 'Allow', Resource: symbolsArn },
+    ]);
+  });
+
+  test('symbol roles never reference the trades table', () => {
+    for (const name of ['ListSymbols', 'PutSymbol', 'DeleteSymbol']) {
+      expect(JSON.stringify(statementsOf(name))).not.toContain(tableId);
+    }
+  });
+
+  test('symbols table has pk/sk keys, on-demand billing and no indexes', () => {
+    expect(symbolsTable.Properties.KeySchema).toEqual([
+      { AttributeName: 'pk', KeyType: 'HASH' },
+      { AttributeName: 'sk', KeyType: 'RANGE' },
+    ]);
+    expect(symbolsTable.Properties.BillingMode).toBe('PAY_PER_REQUEST');
+    expect(symbolsTable.Properties.LocalSecondaryIndexes).toBeUndefined();
+    expect(symbolsTable.Properties.GlobalSecondaryIndexes).toBeUndefined();
+    expect(
+      all('AWS::DynamoDB::GlobalTable')
+        .map(([id]) => id.replace(/[0-9A-F]{8}$/, ''))
+        .sort(),
+    ).toEqual(['SymbolsTable', 'TradesTable']);
+  });
+
+  test('symbols table has the same removal policy as the trades table', () => {
+    const resources = template.toJSON().Resources;
+    const policy = (id: string) => ({
+      deletion: resources[id].DeletionPolicy,
+      replace: resources[id].UpdateReplacePolicy,
+    });
+    expect(policy(symbolsTableId)).toEqual(policy(tableId));
+  });
+
+  test('symbols table has no explicit table name', () => {
+    expect(symbolsTable.Properties.TableName).toBeUndefined();
+  });
+
+  test('each symbol route targets its own function', () => {
+    const resources = template.toJSON().Resources;
+    const targetFunction = (key: string) => {
+      const target = JSON.stringify(routeFor(key)?.[1].Properties.Target).match(
+        /"Ref":"([A-Za-z0-9]+)"/,
+      )?.[1] as string;
+      const integration = resources[target] as Resource;
+      return JSON.stringify(integration.Properties.IntegrationUri);
+    };
+    const expected: [string, string][] = [
+      ['GET /symbols', 'ListSymbols'],
+      ['PUT /symbols/{root}', 'PutSymbol'],
+      ['DELETE /symbols/{root}', 'DeleteSymbol'],
+    ];
+    for (const [key, name] of expected) {
+      expect(targetFunction(key)).toContain(`Api${name}Function`);
+    }
+  });
+
+  test('symbol routes pass the root path parameter to their own function', () => {
+    for (const key of ['PUT /symbols/{root}', 'DELETE /symbols/{root}']) {
+      expect(routeFor(key)?.[1].Properties.RouteKey).toContain('{root}');
+    }
+  });
+
+  test('symbol functions get TABLE_NAME referencing the symbols table', () => {
+    for (const name of ['ListSymbols', 'PutSymbol', 'DeleteSymbol']) {
+      expect(functionNamed(name)[1].Properties.Environment.Variables).toEqual({
+        TABLE_NAME: { Ref: symbolsTableId },
+      });
+    }
+  });
+
   test('trade functions get TABLE_NAME referencing the table', () => {
     for (const name of [
       'CreateTrade',
@@ -274,14 +373,14 @@ describe('Lambda functions', () => {
     const groups = all('AWS::Logs::LogGroup').filter(([id]) =>
       id.startsWith('Api'),
     );
-    expect(groups).toHaveLength(7);
+    expect(groups).toHaveLength(10);
     for (const [, g] of groups) {
       expect(g.Properties.RetentionInDays).toBe(30);
     }
     const referenced = functions.map(
       ([, f]) => f.Properties.LoggingConfig?.LogGroup,
     );
-    expect(referenced).toHaveLength(7);
+    expect(referenced).toHaveLength(10);
     expect(referenced).toEqual(
       expect.arrayContaining(groups.map(([id]) => ({ Ref: id }))),
     );
