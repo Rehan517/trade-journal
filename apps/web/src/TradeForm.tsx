@@ -8,7 +8,13 @@ import {
 } from 'react';
 import {
   PositiveDecimalStringSchema,
+  RootSchema,
+  compareDecimal,
+  contractRoot,
+  parseDecimal,
+  pointValueFor,
   type InstrumentType,
+  type SymbolSetting,
   type TradeSide,
   type TradeView,
   type UpdateTradeRequestInput,
@@ -18,6 +24,7 @@ import {
   INVALID_RESPONSE_STATUS,
   createTrade,
   deleteTrade,
+  putSymbol,
   updateTrade,
 } from './api.ts';
 import {
@@ -26,7 +33,7 @@ import {
   placeIssue,
   type FieldName,
 } from './errorCopy.ts';
-import { toLocalInputValue } from './format.ts';
+import { formatPointValue, toLocalInputValue } from './format.ts';
 import {
   readLastTrade,
   writeLastTrade,
@@ -98,7 +105,7 @@ function blankValues(
     instrumentType: last.instrumentType,
     side: last.side,
     symbol: '',
-    pointValue: last.pointValue ?? '',
+    pointValue: '',
     quantity: '',
     entryPrice: '',
     exitPrice: '',
@@ -134,6 +141,41 @@ const EDIT_DIRTY_FIELDS = [
 ] as const satisfies readonly (keyof FormValues)[];
 
 export const TRADE_TITLE_ID = 'trade-dialog-title';
+
+const NO_SYMBOLS: ReadonlyMap<string, string> = new Map();
+
+/** The contract root of what's typed in Symbol, or '' when there isn't one. */
+function rootOf(symbol: string): string {
+  return symbol.trim() === '' ? '' : contractRoot(symbol);
+}
+
+/**
+ * The hint under the point value cell (#10), or '' when there is none.
+ * Only for a root the settings can hold, so it never promises a save that
+ * decision 7 would skip.
+ */
+function pointValueHint(
+  values: FormValues,
+  symbols: ReadonlyMap<string, string>,
+): string {
+  const root = rootOf(values.symbol);
+  if (!RootSchema.safeParse(root).success) return '';
+  const known = pointValueFor(root, symbols);
+  if (!known) return `New symbol. This value is remembered for ${root}.`;
+  const typed = values.pointValue.trim();
+  if (typed === '') return '';
+  const same =
+    PositiveDecimalStringSchema.safeParse(typed).success &&
+    compareDecimal(parseDecimal(typed), parseDecimal(known.pointValue)) === 0;
+  if (same) {
+    return known.source === 'saved'
+      ? `Saved for ${root}.`
+      : `CME default for ${root}.`;
+  }
+  return known.source === 'saved'
+    ? `Saving replaces ${formatPointValue(known.pointValue)} for ${root}.`
+    : `Saving remembers this for ${root}.`;
+}
 
 /** Single-line inputs, then Notes. A radio group counts as its checked radio. */
 const NAV_SELECTOR =
@@ -177,6 +219,8 @@ export function TradeForm({
   fetchFn,
   now = () => new Date(),
   storage,
+  symbols = NO_SYMBOLS,
+  onSymbolSaved,
   initialOpenedAt,
   onSaved,
   onUnchanged,
@@ -201,8 +245,12 @@ export function TradeForm({
   fetchFn?: typeof fetch;
   /** The clock; replaceable in tests. */
   now?: () => Date;
-  /** Where type, side and point value are remembered; defaults to localStorage. */
+  /** Where type and side are remembered; defaults to localStorage. */
   storage?: StorageLike;
+  /** The user's saved point values by contract root (#10). Defaults still apply. */
+  symbols?: ReadonlyMap<string, string>;
+  /** A point value was saved after a new trade; the shell updates its map. */
+  onSymbolSaved?: (setting: SymbolSetting) => void;
   /** Entry time to start with, a `datetime-local` value. Now when absent. */
   initialOpenedAt?: string;
   /**
@@ -263,6 +311,13 @@ export function TradeForm({
   // The exit time this form filled in itself, so clearing the exit price can
   // take it back out. An exit time the trader typed or edited never matches.
   const [autoFilledExit, setAutoFilledExit] = useState<string>();
+  // The point value this form filled in itself, by the same rule: a value the
+  // trader typed or edited never matches, so it's never overwritten (#10).
+  const [autoFilledPoint, setAutoFilledPoint] = useState<string>();
+  const latest = useRef({ symbols, onSymbolSaved });
+  useEffect(() => {
+    latest.current = { symbols, onSymbolSaved };
+  });
   const focusAlertNext = useRef(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
   // The dialog opens with focus on Symbol. Leaving it untouched that first
@@ -339,6 +394,22 @@ export function TradeForm({
   const future = values.instrumentType === 'future';
   const open = values.exitPrice.trim() === '' && values.closedAt === '';
 
+  /**
+   * Fills the point value from the symbol (#10 decisions 5 and 6): only in a
+   * new future, only while it's empty or still what this form filled in.
+   * The result is the fields to change on top of `base`.
+   */
+  function fillPointValue(base: FormValues): Partial<FormValues> {
+    if (saving || mode !== 'new' || base.instrumentType !== 'future') return {};
+    const current = base.pointValue;
+    if (current.trim() !== '' && current !== autoFilledPoint) return {};
+    const root = rootOf(base.symbol);
+    const found = root ? pointValueFor(root, symbols) : undefined;
+    setAutoFilledPoint(found?.pointValue);
+    const next = found?.pointValue ?? '';
+    return next === current ? {} : { pointValue: next };
+  }
+
   function update(patch: Partial<FormValues>) {
     if (saving) return;
     const next = { ...values, ...patch };
@@ -360,10 +431,26 @@ export function TradeForm({
     });
   }
 
+  // Saved values that arrive after the form opened (decision 10) refill a
+  // value this form filled in from a default. Without this, the default
+  // stays, and saving would log the trade at it and then PUT it over the
+  // trader's saved value. A typed value is never touched (fillPointValue).
+  // Adjusted during render when the prop changes, not in an effect, so there
+  // is no extra render with the stale value.
+  const [filledFor, setFilledFor] = useState(symbols);
+  if (filledFor !== symbols) {
+    setFilledFor(symbols);
+    const patch = fillPointValue(values);
+    if (Object.keys(patch).length > 0) update(patch);
+  }
+
   function change(field: keyof FormValues, value: string) {
     if (field === 'symbol' && symbolQuiet) setSymbolQuiet(false);
     if (saving) return;
     const patch: Partial<FormValues> = { [field]: value };
+    if (field === 'symbol') {
+      Object.assign(patch, fillPointValue({ ...values, symbol: value }));
+    }
     if (field === 'exitPrice') {
       if (value.trim() !== '' && values.closedAt === '') {
         // Logging just after closing is the usual case: typing an exit price
@@ -433,6 +520,7 @@ export function TradeForm({
     const controller = new AbortController();
     controllerRef.current = controller;
     let saved: TradeView | undefined;
+    let created: TradeView | undefined;
     let toast = 'Trade saved';
     try {
       if (editTrade && patch) {
@@ -452,20 +540,16 @@ export function TradeForm({
             : 'Changes saved';
         // An edit never touches the remembered defaults (decision 12).
       } else {
-        const created = await createTrade(
+        created = await createTrade(
           apiUrl,
           accessToken,
           check.body,
           fetchFn,
           controller.signal,
         );
-        const pointValue = values.pointValue.trim();
         const last: LastTrade = {
           instrumentType: values.instrumentType,
           side: values.side,
-          ...(PositiveDecimalStringSchema.safeParse(pointValue).success
-            ? { pointValue }
-            : {}),
         };
         writeLastTrade(last, storage);
         saved = created;
@@ -481,6 +565,38 @@ export function TradeForm({
     // Outside the try, so an error in the page's handler isn't reported as
     // a failed save.
     if (saved) onSaved(saved, toast);
+    // After the dialog has closed, and never awaited (#10 decision 7).
+    if (created) rememberPointValue(created, accessToken);
+  }
+
+  /**
+   * Saves a new future's point value for its root when the user has none
+   * saved for it, or a different one (#10 decision 7). A built-in default
+   * doesn't count as saved: that's how an MES trader's first `5` is kept.
+   * A failure shows nothing: the trade is saved, and the next trade on the
+   * root asks again.
+   */
+  function rememberPointValue(trade: TradeView, token: string) {
+    if (trade.instrumentType !== 'future' || trade.pointValue === undefined) {
+      return;
+    }
+    const root = contractRoot(trade.symbol);
+    if (!RootSchema.safeParse(root).success) return;
+    const pointValue = trade.pointValue;
+    // Decision 7: compared with the looked-up value, saved or default, so a
+    // trade at the default writes nothing and the default keeps applying.
+    const known = pointValueFor(root, latest.current.symbols)?.pointValue;
+    if (
+      known !== undefined &&
+      compareDecimal(parseDecimal(pointValue), parseDecimal(known)) === 0
+    ) {
+      return;
+    }
+    const done = latest.current.onSymbolSaved;
+    putSymbol(apiUrl, token, root, pointValue, fetchFn).then(
+      (setting) => done?.(setting),
+      () => {},
+    );
   }
 
   async function remove() {
@@ -669,7 +785,14 @@ export function TradeForm({
             label="Type"
             value={values.instrumentType}
             options={TYPE_OPTIONS}
-            onChange={(v) => update({ instrumentType: v })}
+            onChange={(v) =>
+              update({
+                instrumentType: v,
+                ...(v === 'future'
+                  ? fillPointValue({ ...values, instrumentType: v })
+                  : {}),
+              })
+            }
             className="cell--type"
           />
           <SegmentedCell
@@ -694,6 +817,9 @@ export function TradeForm({
               decimal
               prefix="$"
               suffix="/pt"
+              hint={
+                mode === 'new' ? pointValueHint(values, symbols) : undefined
+              }
             />
           )}
           <TextCell {...cell('quantity')} label="Qty" decimal />

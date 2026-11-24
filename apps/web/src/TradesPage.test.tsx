@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from 'react-oidc-context';
 import { AuthView } from './AuthView.tsx';
+import { withSymbols } from './testSymbols.ts';
 import { TradesPage } from './TradesPage.tsx';
 
 vi.mock('react-oidc-context', () => ({
@@ -480,14 +481,14 @@ describe('states', () => {
 
   it('opens the dialog from the empty state in the app', async () => {
     const { fetchFn } = stubFetch(() => json({ items: [] }));
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Log a trade' }));
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
   it('shows the session alert on a 401 and Sign in calls signinRedirect', async () => {
     const { fetchFn } = stubFetch(() => json({}, 401));
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain(
       'Your session has expired. Sign in again.',
@@ -533,7 +534,7 @@ describe('stale responses', () => {
       }
       return json({ items: [] });
     });
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     await waitFor(() => expect(signal).toBeTruthy());
     fireEvent.click(screen.getByRole('link', { name: 'Calendar' }));
     expect(signal!.aborted).toBe(true);
@@ -574,7 +575,7 @@ describe('saving from the Trades page', () => {
       if (didSave) return reload.promise as unknown as Response;
       return json({ items: first, nextCursor: 'c1' });
     });
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Load more' }));
     await waitFor(() => expect(bodyRows()).toHaveLength(2));
 
@@ -607,7 +608,7 @@ describe('saving from the Trades page', () => {
       }
       return json({ items: didSave ? [saved] : [] });
     });
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     const opener = await screen.findByRole('button', { name: 'Log a trade' });
     fireEvent.click(opener);
     await fillAndSave2();
@@ -650,7 +651,7 @@ describe('refresh, token renewal and focus (review fixes)', () => {
       if (didSave) return reload.promise as unknown as Response;
       return json({ items: first, nextCursor: 'c1' });
     });
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     await screen.findByRole('button', { name: 'Load more' });
     await fillAndSaveDialog();
     await waitFor(() => expect(gets()).toHaveLength(2));
@@ -741,7 +742,7 @@ describe('Back or Forward while the dialog is open', () => {
     const { fetchFn } = stubFetch((_url, init) =>
       init?.method === 'POST' ? json(saved, 201) : json({ items: [] }),
     );
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     const opener = await screen.findByRole('button', { name: 'Log a trade' });
     fireEvent.click(opener);
     fireEvent.change(screen.getByLabelText('Symbol'), {

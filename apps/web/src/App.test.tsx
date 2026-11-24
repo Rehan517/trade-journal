@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from 'react-oidc-context';
 import App from './App.tsx';
 import { AuthView } from './AuthView.tsx';
+import { withSymbols } from './testSymbols.ts';
 
 vi.mock('react-oidc-context', () => ({
   useAuth: vi.fn(),
@@ -67,7 +68,9 @@ describe('AuthView', () => {
 
   it('shows the top bar, Sign out and the empty calendar when signed in', async () => {
     mockAuth(signedIn);
-    render(<AuthView config={config} fetchFn={emptyMonthFetch()} />);
+    render(
+      <AuthView config={config} fetchFn={withSymbols(emptyMonthFetch())} />,
+    );
     expect(screen.getByText('Trade Journal')).toBeTruthy();
     expect(
       screen
@@ -87,7 +90,9 @@ describe('AuthView', () => {
 
   it('opens the New trade dialog from the top bar and from the empty month', async () => {
     mockAuth(signedIn);
-    render(<AuthView config={config} fetchFn={emptyMonthFetch()} />);
+    render(
+      <AuthView config={config} fetchFn={withSymbols(emptyMonthFetch())} />,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'New trade' }));
     expect(screen.getByRole('heading', { name: 'New trade' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Save trade' })).toBeTruthy();
@@ -209,7 +214,7 @@ describe('AuthView signed in', () => {
         });
       return didSave ? refetched.then(month) : Promise.resolve(month());
     }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     const opener = await screen.findByRole('button', { name: 'Log a trade' });
     fireEvent.click(opener);
     fireEvent.change(screen.getByLabelText('Symbol'), {
@@ -246,7 +251,7 @@ describe('AuthView signed in', () => {
       user: { access_token: 'tok', profile: { sub: 'sub-1' } },
     });
     const fetchFn = emptyMonthFetch();
-    render(<AuthView config={config} fetchFn={fetchFn} />);
+    render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
     fireEvent.click(screen.getByRole('button', { name: 'New trade' }));
     expect(screen.getByRole('dialog')).toBeTruthy();
     await screen.findByText(/No trades in/);

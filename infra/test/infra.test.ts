@@ -257,12 +257,15 @@ describe('InfraStack web hosting', () => {
     template.hasOutput('WebBucketName', { Value: { Ref: bucketId } });
   });
 
-  test('Trades table has exactly one GlobalTable with a pinned logical ID', () => {
+  test('Trades table has a GlobalTable with a pinned logical ID', () => {
     // Changing this ID makes CloudFormation replace the table and delete its
     // data. It was renamed from 'Trades' to add the byOpenedAt LSI. Only
     // change it on purpose.
     const tables = template.findResources('AWS::DynamoDB::GlobalTable');
-    const ids = Object.keys(tables);
+    template.resourceCountIs('AWS::DynamoDB::GlobalTable', 2);
+    const ids = Object.keys(tables).filter((id) =>
+      id.startsWith('TradesTable'),
+    );
     expect(ids).toHaveLength(1);
     expect(ids[0]).toMatch(/^TradesTable[0-9A-F]{8}$/);
     expect(tables[ids[0]].Properties.TableName).toBeUndefined();

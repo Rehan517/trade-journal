@@ -1,16 +1,15 @@
-import {
-  InstrumentTypeSchema,
-  PositiveDecimalStringSchema,
-  TradeSideSchema,
-} from '@trade-journal/shared';
+import { InstrumentTypeSchema, TradeSideSchema } from '@trade-journal/shared';
 import { z } from 'zod';
 
 export const LAST_TRADE_KEY = 'tradeJournal.lastTrade.v1';
 
+/**
+ * Type and side. An old entry may still carry a `pointValue`: it parses and
+ * is dropped, because point values are per symbol now (#10 decision 11).
+ */
 export const LastTradeSchema = z.object({
   instrumentType: InstrumentTypeSchema,
   side: TradeSideSchema,
-  pointValue: PositiveDecimalStringSchema.optional(),
 });
 export type LastTrade = z.infer<typeof LastTradeSchema>;
 
@@ -30,7 +29,7 @@ function resolve(storage?: StorageLike): StorageLike | undefined {
   }
 }
 
-/** Remembered type, side and point value; stock / long when missing or bad. */
+/** Remembered type and side; stock / long when missing or bad. */
 export function readLastTrade(storage?: StorageLike): LastTrade {
   try {
     const raw = resolve(storage)?.getItem(LAST_TRADE_KEY);

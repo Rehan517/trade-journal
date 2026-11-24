@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from 'react-oidc-context';
 import { AuthView } from './AuthView.tsx';
+import { withSymbols } from './testSymbols.ts';
 
 vi.mock('react-oidc-context', () => ({
   useAuth: vi.fn(),
@@ -55,7 +56,7 @@ afterEach(() => {
 
 const renderAt = (path: string) => {
   window.history.replaceState(null, '', path);
-  return render(<AuthView config={config} fetchFn={fetchFn} />);
+  return render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
 };
 const h1 = () => screen.getByRole('heading', { level: 1 });
 const tradesLink = () => screen.getByRole('link', { name: 'Trades' });
@@ -90,6 +91,34 @@ describe('routes', () => {
     renderAt('/trades');
     expect(window.location.pathname).toBe('/trades');
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
+  });
+});
+
+describe('Settings route', () => {
+  it('renders Settings at /settings with its title and nav link', async () => {
+    renderAt('/settings');
+    expect(h1().textContent).toBe('Settings');
+    expect(document.title).toBe('Settings · Trade Journal');
+    const link = screen.getByRole('link', { name: 'Settings' });
+    expect(link.getAttribute('href')).toBe('/settings');
+    expect(link.getAttribute('aria-current')).toBe('page');
+    expect(
+      screen
+        .getAllByRole('link')
+        .map((a) => a.textContent)
+        .slice(0, 3),
+    ).toEqual(['Calendar', 'Trades', 'Settings']);
+    await waitFor(() =>
+      expect(screen.queryByText('Loading saved values…')).toBeNull(),
+    );
+  });
+
+  it('a click on Settings navigates and moves focus to the heading', async () => {
+    renderAt('/');
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
+    expect(window.location.pathname).toBe('/settings');
+    await waitFor(() => expect(document.activeElement).toBe(h1()));
+    expect(document.title).toBe('Settings · Trade Journal');
   });
 });
 

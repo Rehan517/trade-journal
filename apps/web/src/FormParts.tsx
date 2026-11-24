@@ -17,6 +17,7 @@ import {
 import type { Preview } from './tradeFormModel.ts';
 
 const errorId = (field: FieldName) => `tf-${field}-error`;
+const hintId = (field: FieldName) => `tf-${field}-hint`;
 
 /** Clicking anywhere in a cell focuses its input. */
 function focusControl(e: MouseEvent<HTMLElement>) {
@@ -44,6 +45,7 @@ export function TextCell({
   symbol = false,
   readOnly = false,
   optional = false,
+  hint,
 }: {
   field: FieldName;
   label: string;
@@ -63,7 +65,18 @@ export function TextCell({
   readOnly?: boolean;
   /** Shows "optional" at the right of the label row. */
   optional?: boolean;
+  /**
+   * A line under the input that keeps room for itself, so it never moves the
+   * layout. `''` reserves the room with nothing in it. An error takes the
+   * line, and the hint stays linked for screen readers.
+   */
+  hint?: string;
 }) {
+  const noted = hint !== undefined;
+  const describedBy =
+    [error ? errorId(field) : '', hint ? hintId(field) : '']
+      .filter(Boolean)
+      .join(' ') || undefined;
   return (
     <div
       className={`cell ${className}`}
@@ -100,7 +113,7 @@ export function TextCell({
           autoCapitalize={symbol ? 'characters' : undefined}
           spellCheck={symbol ? false : undefined}
           aria-invalid={error ? 'true' : undefined}
-          aria-describedby={error ? errorId(field) : undefined}
+          aria-describedby={describedBy}
         />
         {suffix && (
           <span className="cell__affix" aria-hidden="true">
@@ -108,10 +121,28 @@ export function TextCell({
           </span>
         )}
       </div>
-      {error && (
-        <p className="cell__error" id={errorId(field)}>
-          {error}
-        </p>
+      {noted ? (
+        <div className="cell__foot">
+          {error && (
+            <p className="cell__error" id={errorId(field)}>
+              {error}
+            </p>
+          )}
+          {hint && (
+            <p
+              className={error ? 'cell__note sr-only' : 'cell__note'}
+              id={hintId(field)}
+            >
+              {hint}
+            </p>
+          )}
+        </div>
+      ) : (
+        error && (
+          <p className="cell__error" id={errorId(field)}>
+            {error}
+          </p>
+        )
       )}
     </div>
   );

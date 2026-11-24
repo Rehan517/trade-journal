@@ -940,6 +940,26 @@ p {
   font-weight: 400;
 }
 
+/*
+ * The line under a cell that carries a hint (point value, #10). It keeps room
+ * for two lines of hint or error (three on the narrowest phones), so a hint
+ * appearing, changing or giving way to an error never moves the layout.
+ */
+.cell__foot {
+  min-height: 2.25rem;
+  margin-top: 6px;
+}
+
+.cell__foot .cell__error {
+  margin-top: 0;
+}
+
+.cell__note {
+  color: var(--ink-muted);
+  font: var(--t-hint);
+  overflow-wrap: anywhere;
+}
+
 /* Segmented radio group (Type, Side) */
 .segmented {
   display: grid;
@@ -1252,6 +1272,10 @@ p {
   .cell--type,
   .cell--side {
     grid-column: 1 / -1;
+  }
+
+  .cell__foot {
+    min-height: 3.375rem;
   }
 }
 
@@ -1602,5 +1626,248 @@ p {
   .trades__table th:last-child,
   .trades__table td:last-child {
     padding-right: var(--s-3);
+  }
+}
+
+/* Settings page: point values by contract root, then Add a symbol (#10) */
+.settings {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-5);
+}
+
+.settings__title {
+  margin: 0;
+  font: var(--t-heading);
+  letter-spacing: -0.02em;
+}
+
+.alert.settings__alert {
+  margin: 0;
+}
+
+.settings__section {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-3);
+}
+
+.settings__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+
+.settings__heading {
+  margin: 0;
+  font: var(--t-title);
+}
+
+.settings__status {
+  color: var(--ink-muted);
+  font: var(--t-hint);
+}
+
+.settings__lede {
+  color: var(--ink-muted);
+}
+
+.settings__panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r-dialog);
+  background: var(--surface);
+}
+
+.settings__table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font: var(--t-body);
+}
+
+.settings__table th,
+.settings__table td {
+  height: 44px;
+  padding: 0 var(--s-1);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.settings__table th:first-child,
+.settings__table td:first-child {
+  padding-left: var(--s-3);
+}
+
+.settings__table th:last-child,
+.settings__table td:last-child {
+  padding-right: var(--s-3);
+}
+
+.settings__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: var(--t-caps);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.settings__table thead th:first-child {
+  border-top-left-radius: var(--r-dialog);
+}
+
+.settings__table thead th:last-child {
+  border-top-right-radius: var(--r-dialog);
+}
+
+.settings__table tbody tr:last-child td,
+.settings__table tbody tr:last-child th {
+  border-bottom: 0;
+}
+
+.settings__table .num {
+  text-align: right;
+}
+
+.settings__table tbody th.settings__root {
+  background: transparent;
+  color: var(--ink);
+  font: var(--t-week);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.settings__table td.settings__value {
+  font: var(--t-week);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__table td.settings__source {
+  color: var(--ink-muted);
+}
+
+.settings__table td.settings__actions,
+.settings__table th.settings__actions {
+  text-align: right;
+}
+
+.settings__row[data-editing] > * {
+  background: var(--raised);
+}
+
+/* The phone shows Source under the root instead of in its own column. */
+.settings__source-sub {
+  display: none;
+  color: var(--ink-muted);
+  font: var(--t-hint);
+}
+
+.settings__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s-1);
+}
+
+.settings__buttons .btn {
+  padding-inline: var(--s-4);
+  white-space: nowrap;
+}
+
+.settings__buttons .btn--quiet {
+  padding-inline: var(--s-3);
+}
+
+.settings__control {
+  width: 8rem;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.settings__control .cell__input {
+  text-align: right;
+}
+
+.settings__control[data-invalid] {
+  border-color: var(--loss);
+}
+
+.settings__table .settings__note-row td {
+  height: auto;
+  padding: 0 var(--s-3) var(--s-3);
+}
+
+.settings__error {
+  color: var(--loss);
+  font: var(--t-label);
+  font-weight: 400;
+}
+
+.settings__add {
+  max-width: 40rem;
+}
+
+.settings__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--s-3) 14px;
+}
+
+.settings__fields .cell {
+  grid-column: auto;
+}
+
+/* One line of note or error is enough at this width. */
+.settings__fields .cell__foot {
+  min-height: 1.125rem;
+}
+
+/* Level with the inputs: a label line (16px) and its 6px gap above them */
+.settings__add-button {
+  margin-top: calc(1rem + 6px);
+}
+
+.settings__add .settings__error {
+  margin-top: var(--s-2);
+}
+
+@media (max-width: 639px) {
+  .settings__table th.settings__source,
+  .settings__table td.settings__source {
+    display: none;
+  }
+
+  .settings__source-sub {
+    display: block;
+  }
+
+  .settings__table th:first-child,
+  .settings__table td:first-child {
+    padding-left: var(--s-3);
+  }
+
+  .settings__table th,
+  .settings__table td {
+    padding-block: var(--s-1);
+  }
+
+  .settings__control {
+    width: 6.5rem;
+  }
+
+  .settings__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings__add-button {
+    justify-self: start;
+    margin-top: 0;
   }
 }

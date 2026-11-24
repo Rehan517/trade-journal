@@ -1,14 +1,16 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 
-export type Route = 'calendar' | 'trades';
+export type Route = 'calendar' | 'trades' | 'settings';
 
 export const PATHS: Record<Route, string> = {
   calendar: '/',
   trades: '/trades',
+  settings: '/settings',
 };
 const TITLES: Record<Route, string> = {
   calendar: 'Calendar · Trade Journal',
   trades: 'Trades · Trade Journal',
+  settings: 'Settings · Trade Journal',
 };
 
 const listeners = new Set<() => void>();
@@ -38,8 +40,14 @@ export function navigate(path: string): void {
  */
 export function useRoute(): Route {
   const path = useSyncExternalStore(subscribe, getPath, () => '/');
-  const route: Route = path === PATHS.trades ? 'trades' : 'calendar';
-  const known = path === PATHS.trades || path === PATHS.calendar;
+  const route: Route =
+    path === PATHS.trades
+      ? 'trades'
+      : path === PATHS.settings
+        ? 'settings'
+        : 'calendar';
+  const known =
+    path === PATHS.trades || path === PATHS.settings || path === PATHS.calendar;
   useEffect(() => {
     if (known) return;
     window.history.replaceState(null, '', PATHS.calendar);

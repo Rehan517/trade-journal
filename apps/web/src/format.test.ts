@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatAmount,
   formatMoney,
+  formatPointValue,
   formatR,
   formatRewardRisk,
   formatShortDate,
@@ -70,5 +71,20 @@ describe('formatRewardRisk', () => {
     ['1234.5', '1 : 1234.50'],
   ])('%s -> %s', (exact, text) => {
     expect(formatRewardRisk(exact)).toBe(text);
+  });
+});
+
+describe('formatPointValue', () => {
+  it.each([
+    ['5', '$5'],
+    ['0.5', '$0.50'],
+    ['0.50', '$0.50'],
+    ['1000', '$1,000'],
+    ['10000', '$10,000'],
+    ['5.00', '$5'],
+    ['0.125', '$0.125'],
+    ['12.5', '$12.50'],
+  ])('shows %s as %s', (exact, text) => {
+    expect(formatPointValue(exact)).toBe(text);
   });
 });

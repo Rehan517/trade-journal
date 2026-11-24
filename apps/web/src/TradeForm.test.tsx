@@ -98,7 +98,7 @@ function fillExampleA() {
 afterEach(cleanup);
 
 describe('TradeForm saving', () => {
-  it('posts example A with UTC times, then opens blank, keeping type, side and point value', async () => {
+  it('posts example A with UTC times, then opens blank, keeping type and side', async () => {
     const { fetchFn, storage } = setup();
     fillExampleA();
     expect(screen.getByText('+$98.76')).toBeTruthy();
@@ -106,7 +106,8 @@ describe('TradeForm saving', () => {
     save();
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
 
-    expect(fetchFn).toHaveBeenCalledOnce();
+    // Only the trade: MES at 5 matches the default, so no PUT (#10 decision 7).
+    expect(fetchFn).toHaveBeenCalledTimes(1);
     const [url, init] = vi.mocked(fetchFn).mock.calls[0]!;
     expect(url).toBe(`${apiUrl}/trades`);
     expect((init?.headers as Record<string, string>).Authorization).toBe(
@@ -129,14 +130,14 @@ describe('TradeForm saving', () => {
     expect(screen.queryByLabelText('Symbol')).toBeNull();
     reopen();
     expect(field('Symbol').value).toBe('');
-    expect(field('Point value').value).toBe('5');
+    // Point values are per symbol now, so none is remembered here.
+    expect(field('Point value').value).toBe('');
     expect(field('Entry time').value).toBe('2026-11-19T09:30');
     expect(checked('Future')).toBe(true);
     expect(document.activeElement).toBe(field('Symbol'));
     expect(JSON.parse(storage.data.get(LAST_TRADE_KEY)!)).toEqual({
       instrumentType: 'future',
       side: 'long',
-      pointValue: '5',
     });
   });
 
@@ -343,7 +344,7 @@ describe('TradeForm defaults and keyboard', () => {
     expect(field('Entry time').value).toBe('2026-11-19T09:30');
   });
 
-  it('reads type, side and point value from storage', () => {
+  it('reads type and side from storage and ignores an old point value', () => {
     setup(
       undefined,
       memoryStorage(
@@ -356,7 +357,7 @@ describe('TradeForm defaults and keyboard', () => {
     );
     expect(checked('Future')).toBe(true);
     expect(checked('Short')).toBe(true);
-    expect(field('Point value').value).toBe('5');
+    expect(field('Point value').value).toBe('');
   });
 
   it.each(['not json', '{"instrumentType":"bond","side":"long"}'])(

@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from 'react-oidc-context';
 import { AuthView } from './AuthView.tsx';
+import { withSymbols } from './testSymbols.ts';
 
 vi.mock('react-oidc-context', () => ({
   useAuth: vi.fn(),
@@ -134,7 +135,7 @@ afterEach(() => {
 });
 
 const renderShell = (fetchFn: typeof fetch) =>
-  render(<AuthView config={config} fetchFn={fetchFn} />);
+  render(<AuthView config={config} fetchFn={withSymbols(fetchFn)} />);
 
 /** A day button by its aria-label prefix, e.g. `Oct 5`. */
 const day = (label: string) =>

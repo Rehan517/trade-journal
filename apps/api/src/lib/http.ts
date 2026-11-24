@@ -41,3 +41,6 @@ export const noContent = (): APIGatewayProxyStructuredResultV2 => ({
   statusCode: 204,
   headers: { 'cache-control': 'no-store' },
 });
+
+export const settingNotFound = () =>
+  error(404, { message: 'Setting not found' });

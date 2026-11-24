@@ -6,10 +6,12 @@ import type { AppConfig } from './config.ts';
 import { CalendarPage } from './CalendarPage.tsx';
 import { Toast } from './FormParts.tsx';
 import { NavLink } from './NavLink.tsx';
+import { SettingsPage } from './SettingsPage.tsx';
 import { useRoute, useRouteEffects } from './router.ts';
 import { TradeDialog } from './TradeDialog.tsx';
 import type { TradeFormMode } from './TradeForm.tsx';
 import { TradesPage } from './TradesPage.tsx';
+import { useSymbols } from './useSymbols.ts';
 
 export function AuthView({
   config,
@@ -86,6 +88,8 @@ function Shell({
 }) {
   const auth = useAuth();
   const route = useRoute();
+  // Saved point values, loaded once per sign-in for the dialog and Settings.
+  const symbols = useSymbols(config.apiUrl, auth.user?.access_token, fetchFn);
   const [dialogOpen, setDialogOpen] = useState(false);
   // The button that opened the dialog. Safari doesn't focus a clicked
   // button, so the dialog can't rely on `document.activeElement`.
@@ -199,6 +203,13 @@ function Shell({
             >
               Trades
             </NavLink>
+            <NavLink
+              className="topbar__link"
+              route="settings"
+              current={route === 'settings'}
+            >
+              Settings
+            </NavLink>
           </nav>
           <button
             type="button"
@@ -231,6 +242,15 @@ function Shell({
       <main className="home">
         {route === 'trades' ? (
           <TradesPage {...page} onOpenTrade={openTrade} />
+        ) : route === 'settings' ? (
+          <SettingsPage
+            apiUrl={page.apiUrl}
+            accessToken={page.accessToken}
+            onSignIn={page.onSignIn}
+            fetchFn={fetchFn}
+            symbols={symbols}
+            announce={announce}
+          />
         ) : (
           <CalendarPage {...page} />
         )}
@@ -245,6 +265,8 @@ function Shell({
         accessToken={auth.user?.access_token}
         onSignIn={() => void auth.signinRedirect()}
         fetchFn={fetchFn}
+        symbols={symbols.saved}
+        onSymbolSaved={symbols.applySaved}
         onClose={() => setDialogOpen(false)}
         onSaved={(_trade, message) => {
           setRefreshKey((k) => k + 1);
