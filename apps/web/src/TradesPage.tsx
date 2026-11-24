@@ -28,6 +28,9 @@ const failureOf = (err: unknown): Failure =>
 
 interface Cells {
   id: string;
+  trade: TradeView;
+  /** "long trade, Nov 19 · 09:41": the end of the row buttons' names. */
+  nameTail: string;
   opened: { iso: string; text: string; date: string; time: string };
   symbol: string;
   side: string;
@@ -42,6 +45,8 @@ function cellsOf(trade: TradeView, year: number): Cells {
   const r = trade.metrics.rMultiple;
   return {
     id: trade.id,
+    trade,
+    nameTail: `${trade.symbol} ${trade.side} trade, ${formatOpened(trade.openedAt, year)}`,
     opened: {
       iso: trade.openedAt,
       text: formatOpened(trade.openedAt, year),
@@ -64,6 +69,7 @@ export function TradesPage({
   fetchFn,
   now = () => new Date(),
   onLogTrade,
+  onOpenTrade,
   refreshKey = 0,
 }: {
   apiUrl: string;
@@ -79,7 +85,16 @@ export function TradesPage({
     initialOpenedAt: string | undefined,
     opener: HTMLElement,
   ) => void;
-  /** Bumped by the parent after a save; the first page is fetched again. */
+  /**
+   * The trader chose a row: its symbol edits the trade, and Close on an open
+   * trade closes it. `opener` gets focus back afterwards.
+   */
+  onOpenTrade: (
+    trade: TradeView,
+    mode: 'edit' | 'close',
+    opener: HTMLElement,
+  ) => void;
+  /** Bumped by the parent after a save or a delete; the first page is fetched again. */
   refreshKey?: number;
 }) {
   const [retries, setRetries] = useState(0);
@@ -169,6 +184,7 @@ export function TradesPage({
   const panelRef = useRef<HTMLElement>(null);
   const focusFrom = useRef<number | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const openerTrade = useRef<string | null>(null);
   useEffect(() => {
     const from = focusFrom.current;
     if (from !== null && !cursor && rows && rows.length > 0) {
@@ -186,11 +202,27 @@ export function TradesPage({
     const opener = openerRef.current;
     if (opener && !opener.isConnected) {
       openerRef.current = null;
+      const id = openerTrade.current;
+      openerTrade.current = null;
       if (
         document.activeElement === document.body ||
         document.activeElement === null
       ) {
-        titleRef.current?.focus();
+        // Close went away with the trade's open status: the same trade's
+        // symbol button is the next best place. If the reload dropped the
+        // trade altogether, the title is.
+        let focused = false;
+        for (const el of panelRef.current?.querySelectorAll<HTMLElement>(
+          '[data-edit]',
+        ) ?? []) {
+          if (el.dataset.edit !== id) continue;
+          el.focus();
+          if (document.activeElement === el) {
+            focused = true;
+            break;
+          }
+        }
+        if (!focused) titleRef.current?.focus();
       }
     }
   }, [rows, cursor]);
@@ -211,6 +243,16 @@ export function TradesPage({
       loadMoreRef.current?.focus();
     }
   }, [more.state]);
+
+  const openTrade = (
+    trade: TradeView,
+    mode: 'edit' | 'close',
+    opener: HTMLElement,
+  ) => {
+    openerRef.current = opener;
+    openerTrade.current = trade.id;
+    onOpenTrade(trade, mode, opener);
+  };
 
   const logTrade = (initial: string | undefined, opener: HTMLElement) => {
     openerRef.current = opener;
@@ -314,7 +356,9 @@ export function TradesPage({
         ) : (
           <>
             <table className="trades__table">
-              <caption className="sr-only">Your trades, newest first</caption>
+              <caption className="sr-only">
+                Your trades, newest first. Choose a symbol to edit.
+              </caption>
               <thead>
                 <tr>
                   <th scope="col">Opened</th>
@@ -344,7 +388,19 @@ export function TradesPage({
                         <span className="trades__time">{c.opened.time}</span>
                       </time>
                     </td>
-                    <td className="trades__symbol">{c.symbol}</td>
+                    <td className="trades__symbol">
+                      <button
+                        type="button"
+                        className="trades__edit"
+                        data-edit={c.id}
+                        aria-label={`Edit ${c.nameTail}`}
+                        onClick={(e) =>
+                          openTrade(c.trade, 'edit', e.currentTarget)
+                        }
+                      >
+                        {c.symbol}
+                      </button>
+                    </td>
                     <td>{c.side}</td>
                     <td className="num trades__qty">{c.quantity}</td>
                     <td
@@ -361,6 +417,12 @@ export function TradesPage({
                     </td>
                     <td className="trades__status">
                       <Status open={c.open} />
+                      {c.open && (
+                        <CloseButton
+                          label={`Close ${c.nameTail}`}
+                          onClick={(el) => openTrade(c.trade, 'close', el)}
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -377,9 +439,27 @@ export function TradesPage({
                   >
                     <div className="tcard__line">
                       <span className="tcard__lead">
-                        <span className="trades__symbol">{c.symbol}</span>
+                        <button
+                          type="button"
+                          className="trades__edit trades__symbol"
+                          data-edit={c.id}
+                          aria-label={`Edit ${c.nameTail}`}
+                          onClick={(e) =>
+                            openTrade(c.trade, 'edit', e.currentTarget)
+                          }
+                        >
+                          {c.symbol}
+                        </button>
                         <span>{c.side}</span>
-                        {c.open && <Status open />}
+                        {c.open && (
+                          <>
+                            <Status open />
+                            <CloseButton
+                              label={`Close ${c.nameTail}`}
+                              onClick={(el) => openTrade(c.trade, 'close', el)}
+                            />
+                          </>
+                        )}
                       </span>
                       <span
                         className="tcard__fig"
@@ -464,5 +544,25 @@ function Status({ open }: { open: boolean }) {
     <span className="badge badge--open">Open</span>
   ) : (
     <span className="trades__closed">Closed</span>
+  );
+}
+
+/** Quiet, `--link`, and above the row's stretched edit button. */
+function CloseButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: (button: HTMLElement) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="btn btn--quiet trades__close"
+      aria-label={label}
+      onClick={(e) => onClick(e.currentTarget)}
+    >
+      Close
+    </button>
   );
 }

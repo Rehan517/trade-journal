@@ -13,7 +13,7 @@ export function DialogHarness(
     onSaved?: TradeDialogProps['onSaved'];
   },
 ) {
-  const { onSaved, ...rest } = props;
+  const { onSaved, onDeleted, ...rest } = props;
   const [open, setOpen] = useState(true);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
     null,
@@ -27,9 +27,13 @@ export function DialogHarness(
         {...rest}
         open={open}
         onClose={() => setOpen(false)}
-        onSaved={(trade) => {
-          setToast((t) => ({ id: (t?.id ?? 0) + 1, message: 'Trade saved' }));
-          onSaved?.(trade);
+        onSaved={(trade, message) => {
+          setToast((t) => ({ id: (t?.id ?? 0) + 1, message }));
+          onSaved?.(trade, message);
+        }}
+        onDeleted={() => {
+          setToast((t) => ({ id: (t?.id ?? 0) + 1, message: 'Trade deleted' }));
+          onDeleted?.();
         }}
       />
       <Toast toast={toast} onDismiss={() => setToast(null)} />

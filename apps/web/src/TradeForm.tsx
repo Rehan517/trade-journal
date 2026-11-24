@@ -11,8 +11,15 @@ import {
   type InstrumentType,
   type TradeSide,
   type TradeView,
+  type UpdateTradeRequestInput,
 } from '@trade-journal/shared';
-import { ApiError, INVALID_RESPONSE_STATUS, createTrade } from './api.ts';
+import {
+  ApiError,
+  INVALID_RESPONSE_STATUS,
+  createTrade,
+  deleteTrade,
+  updateTrade,
+} from './api.ts';
 import {
   fieldId,
   isFieldName,
@@ -36,7 +43,9 @@ import {
 import {
   checkForm,
   computePreview,
+  diffBody,
   firstInvalid,
+  valuesFromTrade,
   type FieldErrors,
   type FormValues,
 } from './tradeFormModel.ts';
@@ -60,7 +69,23 @@ const SAVE_FAILED =
   "Couldn't save the trade. Check your connection and try again.";
 const MAYBE_SAVED =
   'The trade may have been saved. Check the list before saving again.';
+const MAYBE_SAVED_EDIT =
+  'The changes may have been saved. Check the list before saving again.';
 const SESSION_EXPIRED = 'Your session has expired. Sign in again.';
+const TRADE_GONE = 'This trade has been deleted.';
+const TRADE_CHANGED =
+  'This trade changed while you were saving. Close it and open it again to see the latest.';
+const DELETE_FAILED =
+  "Couldn't delete the trade. Check your connection and try again.";
+
+/** How the dialog was opened: a new trade, or a stored one (#9). */
+export type TradeFormMode = 'new' | 'edit' | 'close';
+
+const TITLES: Record<TradeFormMode, string> = {
+  new: 'New trade',
+  edit: 'Edit trade',
+  close: 'Close trade',
+};
 
 type AlertState = { kind: 'session' } | { kind: 'message'; messages: string[] };
 
@@ -101,6 +126,13 @@ const DIRTY_FIELDS = [
   'notes',
 ] as const satisfies readonly (keyof FormValues)[];
 
+/** An edit counts every field: Type and Side are the trade's own values. */
+const EDIT_DIRTY_FIELDS = [
+  'instrumentType',
+  'side',
+  ...DIRTY_FIELDS,
+] as const satisfies readonly (keyof FormValues)[];
+
 export const TRADE_TITLE_ID = 'trade-dialog-title';
 
 /** Single-line inputs, then Notes. A radio group counts as its checked radio. */
@@ -137,6 +169,8 @@ function isMac(): boolean {
 }
 
 export function TradeForm({
+  mode = 'new',
+  trade,
   apiUrl,
   accessToken,
   onSignIn,
@@ -145,11 +179,20 @@ export function TradeForm({
   storage,
   initialOpenedAt,
   onSaved,
+  onUnchanged,
+  onDeleted,
+  onGone,
   onCancel,
   onDirtyChange,
   onSavingChange,
   discard,
+  confirmDelete,
+  onAskDelete,
 }: {
+  /** New trade (the default), or edit or close a stored `trade` (#9). */
+  mode?: TradeFormMode;
+  /** The stored trade being edited. Required for edit and close. */
+  trade?: TradeView;
   apiUrl: string;
   accessToken: string | undefined;
   /** Starts sign-in again, for the "session expired" alert. */
@@ -162,8 +205,17 @@ export function TradeForm({
   storage?: StorageLike;
   /** Entry time to start with, a `datetime-local` value. Now when absent. */
   initialOpenedAt?: string;
-  /** Called with the saved trade after a 201. The parent closes the form. */
-  onSaved: (trade: TradeView) => void;
+  /**
+   * Called with the saved trade and the toast to show, after a 201 or a 200.
+   * The parent closes the form.
+   */
+  onSaved: (trade: TradeView, toast: string) => void;
+  /** An edit with nothing changed: the parent closes without a request. */
+  onUnchanged?: () => void;
+  /** The trade is gone, after a 204 or a 404. The parent closes the form. */
+  onDeleted?: () => void;
+  /** A save found the trade already deleted (404). */
+  onGone?: () => void;
   /** Cancel and the close button. The parent decides whether to close. */
   onCancel: () => void;
   /** True once anything other than Type and Side differs from the start. */
@@ -175,9 +227,22 @@ export function TradeForm({
    * shows that question instead of Save trade.
    */
   discard?: { onKeepEditing: () => void; onDiscard: () => void } | null;
+  /**
+   * Set while the parent is asking "Delete this trade?". The footer then
+   * shows that question instead of Save changes.
+   */
+  confirmDelete?: { onKeep: () => void } | null;
+  /** Delete trade, under Notes, was pressed. */
+  onAskDelete?: () => void;
 }) {
+  if (mode !== 'new' && !trade) {
+    throw new Error(`TradeForm needs a trade in ${mode} mode`);
+  }
+  const editTrade = mode === 'new' ? undefined : trade;
   const [initial] = useState(() =>
-    blankValues(now, readLastTrade(storage), initialOpenedAt),
+    editTrade
+      ? valuesFromTrade(editTrade)
+      : blankValues(now, readLastTrade(storage), initialOpenedAt),
   );
   const [values, setValues] = useState(initial);
   // Fields whose error is on show. A field joins on blur or save, if it has
@@ -186,6 +251,9 @@ export function TradeForm({
   const [serverErrors, setServerErrors] = useState<FieldErrors>({});
   const [alert, setAlert] = useState<AlertState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  // A save found the trade deleted; there's nothing left to save to.
+  const [gone, setGone] = useState(false);
   const [mac] = useState(isMac);
   const formRef = useRef<HTMLFormElement>(null);
   const savingRef = useRef(false);
@@ -200,8 +268,10 @@ export function TradeForm({
   // The dialog opens with focus on Symbol. Leaving it untouched that first
   // time isn't a visit, so it doesn't show "Enter a symbol" (decision 4).
   // Typing in it, or leaving it once, ends that.
-  const [symbolQuiet, setSymbolQuiet] = useState(true);
-  const dirty = DIRTY_FIELDS.some((f) => values[f] !== initial[f]);
+  const [symbolQuiet, setSymbolQuiet] = useState(!editTrade);
+  const dirty = (editTrade ? EDIT_DIRTY_FIELDS : DIRTY_FIELDS).some(
+    (f) => values[f] !== initial[f],
+  );
   const callbacks = useRef({ onDirtyChange, onSavingChange });
   useEffect(() => {
     callbacks.current = { onDirtyChange, onSavingChange };
@@ -234,6 +304,21 @@ export function TradeForm({
       }
     };
   }, [asking]);
+
+  // The delete question takes focus on Keep trade, and hands it back to the
+  // first Delete trade button when the trader keeps the trade.
+  const confirming = Boolean(confirmDelete);
+  const keepTradeRef = useRef<HTMLButtonElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!confirming) return;
+    keepTradeRef.current?.focus();
+    return () => {
+      // Read at cleanup on purpose: the button is there once the question goes.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      deleteRef.current?.focus();
+    };
+  }, [confirming]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
@@ -313,7 +398,7 @@ export function TradeForm({
   }
 
   async function save() {
-    if (savingRef.current) return;
+    if (savingRef.current || gone) return;
     if (!check.ok) {
       setArmed(
         Object.fromEntries(
@@ -326,6 +411,12 @@ export function TradeForm({
         focusAlertNext.current = first === undefined;
       }
       if (first) focusField(first);
+      return;
+    }
+    // An edit sends only what changed (decision 10); nothing changed, nothing sent.
+    const patch = editTrade ? diffBody(initial, values) : undefined;
+    if (patch && Object.keys(patch).length === 0) {
+      onUnchanged?.();
       return;
     }
     if (!accessToken) {
@@ -342,24 +433,43 @@ export function TradeForm({
     const controller = new AbortController();
     controllerRef.current = controller;
     let saved: TradeView | undefined;
+    let toast = 'Trade saved';
     try {
-      const trade = await createTrade(
-        apiUrl,
-        accessToken,
-        check.body,
-        fetchFn,
-        controller.signal,
-      );
-      const pointValue = values.pointValue.trim();
-      const last: LastTrade = {
-        instrumentType: values.instrumentType,
-        side: values.side,
-        ...(PositiveDecimalStringSchema.safeParse(pointValue).success
-          ? { pointValue }
-          : {}),
-      };
-      writeLastTrade(last, storage);
-      saved = trade;
+      if (editTrade && patch) {
+        saved = await updateTrade(
+          apiUrl,
+          accessToken,
+          editTrade.id,
+          patch as UpdateTradeRequestInput,
+          fetchFn,
+          controller.signal,
+        );
+        const wasOpen =
+          editTrade.exitPrice === undefined && editTrade.closedAt === undefined;
+        toast =
+          wasOpen && values.exitPrice.trim() !== ''
+            ? 'Trade closed'
+            : 'Changes saved';
+        // An edit never touches the remembered defaults (decision 12).
+      } else {
+        const created = await createTrade(
+          apiUrl,
+          accessToken,
+          check.body,
+          fetchFn,
+          controller.signal,
+        );
+        const pointValue = values.pointValue.trim();
+        const last: LastTrade = {
+          instrumentType: values.instrumentType,
+          side: values.side,
+          ...(PositiveDecimalStringSchema.safeParse(pointValue).success
+            ? { pointValue }
+            : {}),
+        };
+        writeLastTrade(last, storage);
+        saved = created;
+      }
     } catch (err) {
       if (controller.signal.aborted) return;
       handleFailure(err);
@@ -370,7 +480,50 @@ export function TradeForm({
     }
     // Outside the try, so an error in the page's handler isn't reported as
     // a failed save.
-    if (saved) onSaved(saved);
+    if (saved) onSaved(saved, toast);
+  }
+
+  async function remove() {
+    if (savingRef.current || !editTrade) return;
+    if (!accessToken) {
+      focusAlertNext.current = true;
+      setAlert({ kind: 'session' });
+      return;
+    }
+    savingRef.current = true;
+    setSaving(true);
+    setDeleting(true);
+    callbacks.current.onSavingChange?.(true);
+    setAlert(null);
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    let deleted = false;
+    try {
+      await deleteTrade(
+        apiUrl,
+        accessToken,
+        editTrade.id,
+        fetchFn,
+        controller.signal,
+      );
+      deleted = true;
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      focusAlertNext.current = true;
+      setAlert(
+        err instanceof ApiError && err.status === 401
+          ? { kind: 'session' }
+          : { kind: 'message', messages: [DELETE_FAILED] },
+      );
+    } finally {
+      savingRef.current = false;
+      callbacks.current.onSavingChange?.(false);
+      if (!controller.signal.aborted) {
+        setSaving(false);
+        setDeleting(false);
+      }
+    }
+    if (deleted) onDeleted?.();
   }
 
   function handleFailure(err: unknown) {
@@ -380,7 +533,20 @@ export function TradeForm({
       return;
     }
     if (err instanceof ApiError && err.status === INVALID_RESPONSE_STATUS) {
-      setAlert({ kind: 'message', messages: [MAYBE_SAVED] });
+      setAlert({
+        kind: 'message',
+        messages: [editTrade ? MAYBE_SAVED_EDIT : MAYBE_SAVED],
+      });
+      return;
+    }
+    if (editTrade && err instanceof ApiError && err.status === 404) {
+      setGone(true);
+      onGone?.();
+      setAlert({ kind: 'message', messages: [TRADE_GONE] });
+      return;
+    }
+    if (editTrade && err instanceof ApiError && err.status === 409) {
+      setAlert({ kind: 'message', messages: [TRADE_CHANGED] });
       return;
     }
     const body =
@@ -435,7 +601,7 @@ export function TradeForm({
     }
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      if (!discard) void save();
+      if (!discard && !confirmDelete) void save();
       return;
     }
     const target = e.target as HTMLElement;
@@ -467,7 +633,7 @@ export function TradeForm({
       <div className="dlg__header">
         <div className="dlg__heading">
           <h2 className="dlg__title" id={TRADE_TITLE_ID}>
-            New trade
+            {TITLES[mode]}
           </h2>
           <p className="dlg__subtitle">
             Leave exit blank if the position is still open.
@@ -578,6 +744,21 @@ export function TradeForm({
             onBlur={() => blur('notes')}
           />
         </div>
+        {editTrade && (
+          <div className="dlg__delete">
+            <button
+              type="button"
+              ref={deleteRef}
+              className="btn btn--danger"
+              aria-disabled={saving ? 'true' : undefined}
+              onClick={() => {
+                if (!saving) onAskDelete?.();
+              }}
+            >
+              Delete trade
+            </button>
+          </div>
+        )}
       </div>
 
       <ResultStrip preview={preview} />
@@ -602,14 +783,43 @@ export function TradeForm({
       )}
 
       <div className="dlg__footer">
-        {discard ? (
+        {confirmDelete ? (
+          <div
+            className="dlg__discard"
+            role="group"
+            aria-labelledby="trade-delete-question"
+          >
+            <p className="dlg__question" id="trade-delete-question">
+              Delete this trade? This can&rsquo;t be undone.
+            </p>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              ref={keepTradeRef}
+              aria-disabled={saving ? 'true' : undefined}
+              onClick={() => {
+                if (!saving) confirmDelete.onKeep();
+              }}
+            >
+              Keep trade
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger"
+              aria-disabled={saving ? 'true' : undefined}
+              onClick={() => void remove()}
+            >
+              {deleting ? 'Deleting…' : 'Delete trade'}
+            </button>
+          </div>
+        ) : discard ? (
           <div
             className="dlg__discard"
             role="group"
             aria-labelledby="trade-discard-question"
           >
             <p className="dlg__question" id="trade-discard-question">
-              Discard this trade?
+              {editTrade ? 'Discard changes?' : 'Discard this trade?'}
             </p>
             <button
               type="button"
@@ -644,10 +854,11 @@ export function TradeForm({
             <button
               type="submit"
               className="btn btn--primary"
-              aria-disabled={saving ? 'true' : undefined}
+              disabled={gone}
+              aria-disabled={saving || gone ? 'true' : undefined}
               aria-keyshortcuts="Control+Enter Meta+Enter"
             >
-              {saving ? 'Saving…' : 'Save trade'}
+              {saving ? 'Saving…' : editTrade ? 'Save changes' : 'Save trade'}
             </button>
           </>
         )}

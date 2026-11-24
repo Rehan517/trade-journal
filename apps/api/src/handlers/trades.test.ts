@@ -523,6 +523,8 @@ describe('store failure', () => {
   const failing: TradeStore = {
     put: () => Promise.reject(new Error(SECRET)),
     get: () => Promise.reject(new Error(SECRET)),
+    replace: () => Promise.reject(new Error(SECRET)),
+    delete: () => Promise.reject(new Error(SECRET)),
     list: () => Promise.reject(new Error(SECRET)),
   };
 
