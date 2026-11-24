@@ -267,8 +267,9 @@ button (with a + icon) and **Sign out** as a quiet link.
 - The bar wraps on narrow screens in DOM order (brand, nav, New trade, Sign
   out), so the Tab order always matches what's on screen. It never scrolls
   sideways.
-- Nav items: Calendar (`/`) and Trades (`/trades`), real links with
-  `aria-current="page"` on the current one.
+- Nav items: Calendar (`/`), Trades (`/trades`) and Settings
+  (`/settings`, #10), real links with `aria-current="page"` on the current
+  one.
 
 ### Buttons
 
