@@ -1,8 +1,8 @@
 # Spec: trades
 
-Status: #5, #6, #7 and #8 approved; redesign changes approved in #43;
-#9 edit, close and delete awaiting review · Issues: #5, #6, #7,
-#40, #41, #8, #9 (later: #10) · Last updated: 2026-11-24
+Status: #5 to #9 approved; redesign changes approved in #43;
+#10 symbol point values awaiting review · Issues: #5, #6, #7,
+#40, #41, #8, #9, #10 · Last updated: 2026-11-24
 
 ## Summary
 
@@ -21,8 +21,8 @@ settings) here and don't change the earlier sections without updating them.
 | #7       | Quick-entry form                                                              | Done    |
 | #40, #41 | Redesign: date range, planned R:R, form in a dialog ([calendar](calendar.md)) | Done    |
 | #8       | Trade list                                                                    | Done    |
-| #9       | Edit, close, delete                                                           | This PR |
-| #10      | Symbol point values                                                           | Later   |
+| #9       | Edit, close, delete                                                           | Done    |
+| #10      | Symbol point values                                                           | This PR |
 
 ## Additions beyond issue #5
 
@@ -538,6 +538,8 @@ behaviour](#dialog) is new.
    Read with a zod schema, and anything missing or malformed falls back to
    stock / long. Wrapped in `try`, so private browsing still works. Per
    device, not per account: that's fine for a personal journal.
+   _#10 decision 11: the point value leaves this entry, replaced by
+   per-symbol values._
 7. **Times are `datetime-local` inputs, to the minute.** Values are entered
    and shown in the device's time zone and sent as UTC
    (`new Date(local).toISOString()`, e.g. `2026-11-19T09:41` in Melbourne →
@@ -1345,6 +1347,320 @@ trade in the same dialog as New trade, filled in. Areas: `packages/shared`,
 - Opening trades from the calendar, and the trade detail (#13).
 - Bulk edit and bulk delete.
 - Edit history or an audit log.
+
+## Symbol point values (#10)
+
+A futures trade's point value is filled in from the symbol, so an MES
+trader types `5` once and never again. Each user has saved point values
+per **contract root** (`MESZ6`, `MES1!` and `/MES` are all `MES`), on top
+of built-in defaults for common CME contracts. A **Settings** page lists
+them and lets the trader change them. Areas: `packages/shared`, `apps/api`,
+`infra` (a table, three routes) and `apps/web`.
+
+### Additions beyond issue #10
+
+| Addition                                                              | Why                                                                                                        |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Overriding a filled-in value on a new trade saves it as the new value | A wrong default would otherwise be corrected on every trade. The cell's hint says so before saving         |
+| Point value leaves the remembered defaults (`lastTrade`)              | #7 remembered one point value for all symbols, which fills `5` into an NQ trade. Per-symbol replaces it    |
+| Settings lives in its own DynamoDB table                              | The settings routes can't reach trades at all, keeping one action per role on one resource (#6 decision 1) |
+| Settings can add a symbol before its first trade                      | A trader moving to a new contract can set it up ahead of time                                              |
+
+### Decisions (#10)
+
+1. **A contract root is derived from the symbol by `contractRoot(symbol)`**
+   in `packages/shared/src/symbols.ts`. The symbol is trimmed and
+   upper-cased (as the schema does), then, in order:
+   1. A leading `/` is removed (thinkorswim's `/MES`).
+   2. A trailing continuous suffix, digits then `!`, is removed
+      (TradingView's `MES1!`, `ES2!`).
+   3. A trailing month code and year is removed: one of
+      `F G H J K M N Q U V X Z`, then 1, 2 or 4 digits (`MESZ6`, `MESZ26`,
+      `MESZ2026`).
+   4. If nothing is left, the root is the whole trimmed symbol.
+
+   A month code without a year isn't removed, so `ESZ` stays `ESZ`. Roots
+   with digits work, because only a trailing letter-and-digits group is
+   removed: `M2KH7` → `M2K`, `6EZ6` → `6E`.
+
+2. **The trade still stores the symbol as typed** (`MESZ6`), and its own
+   copy of `pointValue`. The root is only the key for looking a value up.
+   Changing a saved value never changes a logged trade, because nothing
+   reads settings when showing or computing a trade.
+3. **Lookup order: the user's saved value, then the default, then
+   nothing.** `pointValueFor(root, saved)` in shared returns
+   `{ pointValue, source: 'saved' | 'default' }` or `undefined`.
+4. **Defaults are a constant in shared**, `DEFAULT_POINT_VALUES`, never
+   stored. Changing one in a later release changes only what's filled in
+   for new trades. Dollars per 1.00 point, per contract:
+
+   | Root | Contract             | Point value |
+   | ---- | -------------------- | ----------- |
+   | ES   | E-mini S&P 500       | `50`        |
+   | MES  | Micro E-mini S&P 500 | `5`         |
+   | NQ   | E-mini Nasdaq-100    | `20`        |
+   | MNQ  | Micro E-mini Nasdaq  | `2`         |
+   | YM   | E-mini Dow           | `5`         |
+   | MYM  | Micro E-mini Dow     | `0.5`       |
+   | RTY  | E-mini Russell 2000  | `50`        |
+   | M2K  | Micro E-mini Russell | `5`         |
+   | CL   | Crude oil            | `1000`      |
+   | MCL  | Micro crude oil      | `100`       |
+   | NG   | Natural gas          | `10000`     |
+   | GC   | Gold                 | `100`       |
+   | MGC  | Micro gold           | `10`        |
+   | SI   | Silver               | `5000`      |
+
+   Treasury futures (ZN, ZB and others) are left out on purpose. They're
+   quoted in 32nds (`110'16`), and the form takes decimals, so a default
+   would invite a wrong entry price. They can still be saved by hand.
+
+5. **The form fills the point value; it never switches Type.** `ES`, `CL`,
+   `GC` and `SI` are also stock tickers, so typing a known root doesn't
+   make the trade a future. The fill only happens while Type is Future.
+6. **Filling follows the exit-time rule from #7.** Whenever Symbol changes,
+   or Type becomes Future:
+   - If the point value cell is empty or still holds a value this form
+     filled in, it's set to the looked-up value, or cleared when there is
+     none.
+   - A value the trader typed is never overwritten.
+
+   The fill runs on every change to Symbol, so typing `MESZ6` fills `5` at
+   `MES` and keeps it.
+
+7. **Saving a new trade saves its point value when it's new or
+   different.** After a 201 for a future, the form compares the trade's
+   `pointValue` with the looked-up value using `compareDecimal`, so `5` and
+   `5.00` are the same. If there was no value, or they differ,
+   `PUT /symbols/{root}` saves the trade's value.
+   - The PUT runs after the dialog has closed and isn't awaited. If it
+     fails, nothing is shown: the trade is saved, and the next trade on
+     that root asks again.
+   - It's skipped when the root isn't a valid root (decision 9), for
+     example a symbol with a `.` in it.
+8. **Edit and Close don't fill or save point values.** A logged trade keeps
+   its own value (acceptance criterion 2), and an edit is the place to
+   correct one trade, not the setting.
+9. **A root in a URL must already be a root.** It's upper-cased, must
+   match `^[A-Z0-9]{1,12}$`, and must equal `contractRoot` of itself. So
+   `PUT /symbols/MESZ6` is 400 and the client always sends `MES`.
+10. **Settings are loaded once per sign-in.** The signed-in shell fetches
+    `GET /symbols` when it mounts and keeps the result. The dialog and the
+    Settings page both read it, and every save, PUT or DELETE updates it.
+    Until it arrives, or if it fails, the form fills from defaults only.
+11. **`lastTrade` stops holding a point value.** This replaces that part
+    of #7 decision 6. `LastTradeSchema` keeps type and side and drops
+    `pointValue`, so an old stored entry still parses and its point value
+    is ignored. The key stays `tradeJournal.lastTrade.v1`.
+
+### API (#10)
+
+Settings live in a new table, `SymbolsTable`, keyed `pk = USER#<sub>` and
+`sk = SYMBOL#<root>`. Each item holds `root`, `pointValue` (a decimal
+string, attribute type `S`) and `updatedAt` (UTC ISO 8601).
+
+| Route                    | Lambda                 | Success             | DynamoDB action |
+| ------------------------ | ---------------------- | ------------------- | --------------- |
+| `GET /symbols`           | `ListSymbolsFunction`  | 200 `{ items }`     | `Query`         |
+| `PUT /symbols/{root}`    | `PutSymbolFunction`    | 200 `SymbolSetting` | `PutItem`       |
+| `DELETE /symbols/{root}` | `DeleteSymbolFunction` | 204, no body        | `DeleteItem`    |
+
+```ts
+type SymbolSetting = { root: string; pointValue: string; updatedAt: string };
+```
+
+- **`GET /symbols`** returns only the caller's saved values, sorted by
+  root, not the defaults: the client merges them in. It queries
+  `pk = :pk` with `ConsistentRead`, and follows `LastEvaluatedKey` until
+  every item is read. A personal list of roots is far under one page, so
+  there's no client paging.
+- **`PUT /symbols/{root}`** creates or replaces the value. The body is
+  `PutSymbolRequestSchema`, `{ pointValue }` as a positive decimal string,
+  `.strict()`. Unconditional `PutItem`, with `updatedAt` set to now. The
+  same PUT twice gives the same result.
+- **`DELETE /symbols/{root}`** removes a saved value, so the default (if
+  any) applies again. `DeleteItem` is conditional on `attribute_exists(sk)`.
+- Every key uses the caller's `pk`. One user can't read, change or
+  delete another's settings.
+- **Shared** (`symbols.ts`): `contractRoot`, `RootSchema`,
+  `DEFAULT_POINT_VALUES`, `pointValueFor`, `SymbolSettingSchema`,
+  `ListSymbolsResponseSchema` and `PutSymbolRequestSchema`.
+
+| Case                                          | Status | Body                                                      |
+| --------------------------------------------- | ------ | --------------------------------------------------------- |
+| No access token, ID token, or no `sub`        | 401    | `{ message: "Unauthorized" }`                             |
+| `PUT` root isn't a valid root (decision 9)    | 400    | `{ message: "Invalid root" }`                             |
+| `PUT` body isn't JSON                         | 400    | `{ message: "Body must be valid JSON" }`                  |
+| `PUT` body fails `PutSymbolRequestSchema`     | 400    | `{ message: "Invalid setting", fieldErrors, formErrors }` |
+| `DELETE` root invalid, or nothing saved       | 404    | `{ message: "Setting not found" }`                        |
+| DynamoDB error or a stored item fails parsing | 500    | `{ message: "Internal error" }`                           |
+
+- An invalid root is 400 on PUT, because the client chose it, but 404 on
+  DELETE, like a non-UUID trade id (#6).
+- Items read back are parsed with `SymbolSettingSchema`. One that fails is
+  a server bug: it's logged and the answer is 500 (#6 decision 10).
+
+### Infra (#10)
+
+- **`SymbolsTable`**: a `TableV2` with `pk` and `sk` strings, on-demand
+  billing, and the Trades table's removal policy. No indexes.
+- One Lambda per route, each with `TABLE_NAME` set to the symbols table
+  and exactly one action on its ARN: `Query`, `PutItem` or `DeleteItem`.
+  No `grant*` helpers, and no access to the Trades table.
+- Routes behind the JWT authorizer. CORS `allowMethods` adds `PUT`.
+- The Trades table and the existing roles are unchanged.
+
+### Form (#10)
+
+The point value cell (#7) gains a hint below it, `--t-hint` in
+`--ink-muted`, linked with `aria-describedby` alongside any error. It shows
+only in New trade mode, while Type is Future and Symbol has a root:
+
+| State                            | Hint                                          |
+| -------------------------------- | --------------------------------------------- |
+| Filled from a saved value        | Saved for MES.                                |
+| Filled from a default            | CME default for MES.                          |
+| No value known                   | New symbol. This value is remembered for MES. |
+| A saved value the trader changed | Saving replaces $5 for MES.                   |
+| A default the trader changed     | Saving remembers this for MES.                |
+
+- Money in a hint uses the design system's format without a sign: `$5`,
+  `$0.50`.
+- The hint never moves the layout: the cell keeps room for one line of
+  hint or error, as the error slot already does.
+- The point value cell still validates as in #7. An empty value on a
+  future is "Enter dollars per point, like 5."
+
+### Settings page
+
+A third page at `/settings`, after Trades in the nav. The router (#8
+decision 1) gains the route; `document.title` is "Settings · Trade
+Journal".
+
+```
+Settings
+
+Point values
+Dollars per 1.00 point, per contract. Trades already logged keep their own value.
+┌──────────────────────────────────────────────────────────────┐
+│ ROOT   POINT VALUE   SOURCE                                  │
+├──────────────────────────────────────────────────────────────┤
+│ CL         $1,000    Default                        [Edit]   │
+│ MES            $5    Saved                    [Edit] Remove  │
+│ NQ            $25    Saved · default $20   [Edit] Use default│
+└──────────────────────────────────────────────────────────────┘
+Add a symbol
+[Symbol      ] [Point value $   /pt] [Add]
+Saves as MES.
+```
+
+- **Rows** are every default and every saved root, sorted by root. Point
+  values are mono, right aligned, formatted like money without a sign.
+  Source is "Default", "Saved", or "Saved · default $20" when a saved
+  value replaces a default.
+- **Edit** turns the row's value into a boxed field with **Save** and
+  **Cancel**. Enter saves and Esc cancels. Focus goes into the field, and
+  after Save or Cancel it returns to that row's Edit button. Save sends
+  `PUT /symbols/{root}`.
+- **Remove** (a saved root with no default) and **Use default** (a saved
+  root with one) are quiet buttons that send `DELETE /symbols/{root}`.
+  There's no confirmation: losing a saved value only means typing it once
+  more. After Remove, focus goes to the next row's Edit button, or the Add
+  form's Symbol field if it was the last.
+- **Add a symbol** takes a symbol in any form (`MESZ6`, `MES1!`) and shows
+  "Saves as MES." under it as it's typed. Add sends `PUT` for the root. An
+  existing root is updated, not duplicated. After a save the fields clear
+  and focus returns to Symbol.
+- **Validation**, on blur or save as in #7: an empty symbol says "Enter a
+  futures symbol, like MES."; a root with anything but letters and digits
+  says "Use letters and numbers only."; a bad point value says "Enter
+  dollars per point, like 5."
+- **Toasts**: "Point value saved", "Point value removed", "Default
+  restored".
+- **States**: while `GET /symbols` loads, the table shows the defaults and
+  a `role="status"` "Loading saved values…". A failed load shows the alert
+  "Couldn't load your saved point values." with Retry, above the
+  defaults. A 401 anywhere shows the session alert. A failed PUT or
+  DELETE shows "Couldn't save. Check your connection and try again." in
+  the row or the Add form, and keeps what was typed.
+- **Layout**: the same table panel as the trade list (#8), with a caption
+  "Point values by contract root". Below 640px the Source column is
+  hidden and its text goes on a second line under the root. Nothing
+  scrolls sideways at 320px.
+
+### Automated tests (#10)
+
+- **Shared** (`symbols.test.ts`):
+  - `contractRoot`: `MES`, `mes `, `MESZ6`, `MESZ26`, `MESZ2026`, `MES1!`,
+    `ES2!`, `/MES` and `/MESZ26` all give `MES` or `ES`. `M2KH7` → `M2K`,
+    `MYMM6` → `MYM`, `6EZ6` → `6E`, `ESZ` → `ESZ`, `Z6` → `Z6`.
+  - `pointValueFor`: saved wins over default, default alone, neither.
+  - `RootSchema` accepts `MES` and `M2K`. It rejects `MESZ6`, `MES1!`,
+    `BRK.B`, `""` and a 13-character root.
+  - Every `DEFAULT_POINT_VALUES` value passes
+    `PositiveDecimalStringSchema`.
+- **Handlers** (in-memory store):
+  - PUT then GET returns the value. A second PUT replaces it, and
+    `updatedAt` changes.
+  - GET is sorted by root and has no defaults.
+  - DELETE is 204, then the GET doesn't have it, and a second DELETE is 404.
+  - **Another user:** user B's GET doesn't include user A's settings, and
+    B's DELETE of A's root is 404 with A's value kept.
+  - 400 for `PUT /symbols/MESZ6`, `PUT /symbols/BRK.B`, a negative or
+    float-looking value (`-5`, `5e1`), an unknown key, a body that isn't
+    JSON.
+  - 401 on each route for the `GET /me` cases.
+- **DynamoDB store** (`aws-sdk-client-mock`): the Query, with the
+  caller's `pk` and `ConsistentRead`, following `LastEvaluatedKey`. The
+  `PutItem` item, with the point value as a string. The `DeleteItem`
+  condition.
+- **Infra:** the three routes use the JWT authorizer; each role has
+  exactly its one action on the symbols table ARN and nothing on the
+  Trades table; the table has `pk` and `sk`; CORS allows `PUT`.
+- **Web:**
+  - **Acceptance 1:** save an MES future with point value `5` on a user
+    with no settings, and see one `PUT /symbols/MES` with `5`. Open New
+    trade again, choose Future, type `MESZ6`: point value is `5`, the hint
+    says "Saved for MES.", and saving sends no PUT.
+  - **Acceptance 2:** change MES to `6` on the Settings page, then open an
+    existing MES trade in Edit. It still shows `5`, and the list's P&L is
+    unchanged.
+  - **Fill rules:** a default fills `NQ` with `20` and says "CME default
+    for NQ."; switching from `NQ` to `ES` refills it; a typed value is
+    never overwritten; clearing Symbol clears a filled value; Type Stock
+    with `ES` fills nothing and shows no hint; switching Type to Future
+    after typing `ES` fills `50`.
+  - **Saving rules:** a changed default sends a PUT; `5.00` against a
+    saved `5` doesn't; a failed PUT shows nothing and the trade is still
+    "Trade saved"; Edit and Close never send a PUT.
+  - **Remembered defaults:** after saving a future, `localStorage` holds
+    type and side and no point value. An old entry with `pointValue: "5"`
+    starts the form with an empty point value.
+  - **Settings page:** the route, title and nav link; rows merge defaults
+    and saved values with the right Source; Edit, Save and Cancel
+    (keyboard included) and where focus goes; Remove and Use default send
+    DELETE and update the row; Add shows "Saves as MES." and sends PUT for
+    the root; validation copy; loading, load error with Retry, 401 and
+    save-error states.
+  - **`listSymbols`, `putSymbol` and `deleteSymbol`** (`api.test.ts`): the
+    requests sent and each status handled.
+
+### Manual check
+
+- Log an MES trade on a fresh account, then a second MES trade without
+  typing the point value. Change MES on the Settings page and check the
+  first two trades still show their old P&L.
+- Settings at 1280px, 375px and 320px; Edit with the keyboard only.
+
+### Out of scope for #10
+
+- Exchange prefixes such as TradingView's `CME_MINI:MES1!`. They're longer
+  than the symbol's 12 characters, so the schema already rejects them.
+- Treasury and other fractional-quote defaults (decision 4).
+- Switching Type automatically from the symbol (decision 5).
+- Symbol suggestions or autocomplete in the form.
+- Tick size, margin or contract months as settings.
+- Settings per account (#21).
 
 ## Open questions
 
