@@ -481,7 +481,9 @@ describe('TradeForm review fixes', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toContain('Invalid option'),
     );
-    expect(document.activeElement).toBe(screen.getByRole('alert'));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('alert')),
+    );
   });
 
   it('shows a pointValue 400 in the alert while the type is stock', async () => {

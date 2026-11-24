@@ -151,13 +151,13 @@ describe('route effects', () => {
     renderAt('/');
     fireEvent.click(tradesLink());
     await waitFor(() => expect(h1().textContent).toBe('Trades'));
-    expect(document.activeElement).toBe(h1());
+    await waitFor(() => expect(document.activeElement).toBe(h1()));
     expect(document.title).toBe('Trades · Trade Journal');
     expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
 
     fireEvent.click(calendarLink());
     await waitFor(() => expect(h1().textContent).not.toBe('Trades'));
-    expect(document.activeElement).toBe(h1());
+    await waitFor(() => expect(document.activeElement).toBe(h1()));
     expect(document.title).toBe('Calendar · Trade Journal');
   });
 

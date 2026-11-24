@@ -190,6 +190,12 @@ describe('AuthView signed in', () => {
       metrics: {},
     };
     let didSave = false;
+    // The refetch after the save is held until the test releases it, so the
+    // moment focus is back on the opener can't be skipped by a fast refetch.
+    let releaseRefetch: () => void = () => undefined;
+    const refetched = new Promise<void>((resolve) => {
+      releaseRefetch = resolve;
+    });
     const fetchFn = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
         didSave = true;
@@ -197,11 +203,11 @@ describe('AuthView signed in', () => {
           new Response(JSON.stringify(saved), { status: 201 }),
         );
       }
-      return Promise.resolve(
+      const month = () =>
         new Response(JSON.stringify({ items: didSave ? [saved] : [] }), {
           status: 200,
-        }),
-      );
+        });
+      return didSave ? refetched.then(month) : Promise.resolve(month());
     }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
     render(<AuthView config={config} fetchFn={fetchFn} />);
     const opener = await screen.findByRole('button', { name: 'Log a trade' });
@@ -216,9 +222,10 @@ describe('AuthView signed in', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save trade' }));
     await waitFor(() => expect(screen.getByText('Trade saved')).toBeTruthy());
     expect(screen.queryByRole('button', { name: 'Save trade' })).toBeNull();
-    expect(document.activeElement).toBe(opener);
+    await waitFor(() => expect(document.activeElement).toBe(opener));
     // The calendar fetches the month again; the empty-month button goes with
     // it, and focus moves to the month title instead of falling to the body.
+    releaseRefetch();
     await waitFor(() => {
       const gets = vi
         .mocked(fetchFn)
@@ -226,8 +233,10 @@ describe('AuthView signed in', () => {
       expect(gets).toHaveLength(2);
       expect(opener.isConnected).toBe(false);
     });
-    expect(document.activeElement).toBe(
-      screen.getByRole('heading', { level: 1 }),
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('heading', { level: 1 }),
+      ),
     );
   });
 

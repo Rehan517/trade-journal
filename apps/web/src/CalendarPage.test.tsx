@@ -789,7 +789,7 @@ describe('saving a trade', () => {
       expect(statCard('Net P&L').textContent).toContain('+$827.64'),
     );
     expect(opener.isConnected).toBe(true);
-    expect(document.activeElement).toBe(opener);
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
   it('a failed refetch after saving shows the error alert, not stale figures', async () => {
