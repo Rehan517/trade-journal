@@ -1,8 +1,8 @@
 # Spec: trades
 
-Status: #5, #6 and #7 approved; redesign changes approved in #43;
-#8 trade list awaiting review · Issues: #5, #6, #7,
-#40, #41, #8 (later: #9, #10) · Last updated: 2026-11-23
+Status: #5, #6, #7 and #8 approved; redesign changes approved in #43;
+#9 edit, close and delete awaiting review · Issues: #5, #6, #7,
+#40, #41, #8, #9 (later: #10) · Last updated: 2026-11-24
 
 ## Summary
 
@@ -19,9 +19,9 @@ settings) here and don't change the earlier sections without updating them.
 | #5       | Fields, Maths                                                                 | Done    |
 | #6       | API                                                                           | Done    |
 | #7       | Quick-entry form                                                              | Done    |
-| #40, #41 | Redesign: date range, planned R:R, form in a dialog ([calendar](calendar.md)) | This PR |
-| #8       | Trade list                                                                    | This PR |
-| #9       | Edit, close, delete                                                           | Later   |
+| #40, #41 | Redesign: date range, planned R:R, form in a dialog ([calendar](calendar.md)) | Done    |
+| #8       | Trade list                                                                    | Done    |
+| #9       | Edit, close, delete                                                           | This PR |
 | #10      | Symbol point values                                                           | Later   |
 
 ## Additions beyond issue #5
@@ -890,7 +890,8 @@ client from the calendar.
    24-hour clock, both from `Intl.DateTimeFormat`.
 6. **Rows don't open anything yet.** The trade detail (#13) and editing
    (#9) decide what a row does. Until then a row isn't a link or a button,
-   so it doesn't look clickable.
+   so it doesn't look clickable. _Replaced by #9 decision 8: a row's
+   symbol opens the trade for editing._
 
 ### Columns
 
@@ -1026,8 +1027,328 @@ Vitest and Testing Library in `apps/web`, with a stubbed `fetch`.
 - A total count of trades (the API doesn't return one).
 - Keeping the path through sign-in.
 
+## Edit, close and delete (#9)
+
+A trade can be changed after it's logged: any field edited, an open trade
+closed by adding its exit, or the trade deleted. Two new routes,
+`PATCH /trades/{id}` and `DELETE /trades/{id}`, and the trade list opens a
+trade in the same dialog as New trade, filled in. Areas: `packages/shared`,
+`apps/api`, `infra` (two routes and their roles) and `apps/web`.
+
+### Additions beyond issue #9
+
+| Addition                                                                      | Why                                                                                          |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Clearing both exit fields reopens a closed trade                              | Open or closed is decided by the exit fields (#7 decision 9). A mistaken close can be undone |
+| Delete lives inside the edit dialog, not on the row                           | One deliberate step before the confirmation, and no destructive button beside every row      |
+| A write that races another write on the same trade is 409, never lost         | Two tabs, or a double-sent request, could otherwise overwrite each other silently            |
+| The issue's "infra" work: two Lambdas, their routes and CORS `PATCH`/`DELETE` | The issue lists api and web only, but the routes can't exist without them                    |
+
+### Decisions (#9)
+
+1. **`PATCH` is a merge patch** (in the style of RFC 7396). The body holds
+   only the fields that change. A field set to `null` is removed. Absent
+   fields are left as they are.
+   - Fields that can be removed: `exitPrice`, `closedAt`, `pointValue`,
+     `plannedStop`, `plannedTarget` and `notes`. The required fields and
+     `fees` can't be `null`. Fees go back to `"0"`, not to nothing.
+   - The body must change at least one field. `{}` is 400.
+   - Unknown keys are rejected, as on create (#6 decision 7). That includes
+     `id`, `createdAt`, `updatedAt` and `metrics`.
+2. **The rules run on the merged trade, not on the patch.** The handler
+   reads the stored trade, applies the patch and parses the result with
+   `TradeSchema`. Every rule in the validation table applies, with errors at
+   the same paths. A patch of `{ "exitPrice": "5010" }` on an open trade is
+   therefore 400 on `closedAt` ("together"). Switching a future to a stock
+   needs `"pointValue": null` in the same patch.
+3. **Closing a trade is an ordinary edit** that adds `exitPrice` and
+   `closedAt`. Reopening one is an edit that sets both to `null`. There's no
+   separate close route and no status field.
+4. **The whole item is rewritten with `PutItem`**, not `UpdateItem`. The
+   handler already has the full merged trade. A put removes cleared
+   attributes without a `REMOVE` clause, and it recomputes `openedAtKey`. A
+   changed `openedAt` then moves the trade in the `byOpenedAt` index (the
+   LSI follows the item, #6 decision 5). `id` and `createdAt` are kept and
+   `updatedAt` is set to now.
+5. **Concurrent writes fail rather than overwrite.** The read uses
+   `ConsistentRead`, and the put is conditional on
+   `attribute_exists(sk) AND updatedAt = :readUpdatedAt`. If the condition
+   fails, the trade is read once more. If it's gone, the answer is 404.
+   Otherwise it's 409 `{ message: "Trade changed while saving" }`. Clients
+   don't send a version yet (out of scope below). Because the form sends
+   only changed fields, edits from two tabs to different fields both
+   survive.
+6. **Delete is permanent.** `DeleteItem` is conditional on
+   `attribute_exists(sk)`. A failed condition is 404, so deleting twice is
+   404 the second time. Success is **204** with no body. There's no undo or
+   soft delete: the confirmation is the safeguard (open questions).
+7. **Another user's trade is 404 on both routes**, exactly as on
+   `GET /trades/{id}`. Every key uses the caller's `pk`, so another user's
+   trade is never found, and a non-UUID `id` is 404 too.
+8. **The list opens trades.** This replaces #8 decision 6. Each row's
+   symbol is a button that opens the trade in the **Edit trade** dialog,
+   and the button's hit area stretches over the whole row or card. An open
+   trade's row also has a **Close** button that opens the same dialog in
+   close mode.
+   - When #13 adds the trade detail, the row button opens the detail
+     instead, and Edit moves there. Until then, editing is the only thing a
+     trade can be opened for.
+   - The calendar doesn't open trades. A day still opens New trade
+     (calendar decision 7) until #13's day view.
+9. **Close mode is the edit dialog with focus on Exit.** Nothing else is
+   different, so fees can be topped up with the exit commission in the same
+   step. There's no smaller exit-only dialog. Typing an exit price fills a
+   blank exit time with now (#7), so closing a trade just after exiting
+   takes one field and ⌘ Enter.
+10. **The form sends only what changed.** It still validates the whole form
+    with `CreateTradeRequestSchema` first (#7 decision 2). Then it builds
+    the body for the original values and the body for the current values
+    (`buildBody`) and diffs them:
+    - A key whose value differs is sent.
+    - A key that was in the original body and isn't in the current one is
+      sent as `null`. Cleared fees are sent as `"0"`.
+    - With no changes, Save changes closes the dialog without a request or
+      a toast.
+11. **Times keep their stored precision unless edited.** Stored times are
+    shown to the minute in local time (#7 decision 7). An untouched time
+    isn't in the diff, so a `openedAt` of `09:41:30.250Z` isn't rounded by
+    an edit to the notes. An edited time is sent to the minute, like a new
+    trade's. In one edge case the browser passes and the server rejects:
+    an exit time edited to `09:41` against an untouched entry of
+    `09:41:30`. The 400 lands on Exit time through the usual mapping.
+12. **Remembered defaults aren't touched.** An edit doesn't write
+    `tradeJournal.lastTrade.v1` (#7 decision 6). Those defaults are for the
+    next new trade.
+13. **After a save or a delete, the list reloads its first page**, as after
+    a new trade (#8 decision 4). The reload brings back every metric
+    recomputed by the server, so P&L and R are updated wherever they're
+    shown. The calendar fetches its month each time it's shown, so it
+    picks the change up too.
+
+### API
+
+| Route                 | Lambda                | Success       | DynamoDB actions                  |
+| --------------------- | --------------------- | ------------- | --------------------------------- |
+| `PATCH /trades/{id}`  | `UpdateTradeFunction` | 200 TradeView | `GetItem`, `PutItem` on the table |
+| `DELETE /trades/{id}` | `DeleteTradeFunction` | 204, no body  | `DeleteItem` on the table         |
+
+- **Schema** (`packages/shared/src/trade-api.ts`): `UpdateTradeRequestSchema`.
+  Every field of `TradeFieldsSchema` except `id` becomes optional, and the
+  removable fields (decision 1) are also `.nullable()`. The object is
+  `.strict()`, with a refinement that rejects `{}`:
+  `formErrors` = `Body must change at least one field`. It has no
+  cross-field rules of its own, because they run on the merged trade
+  (decision 2).
+- **`applyTradePatch(trade, patch): unknown`** is in shared too. It returns
+  the stored trade with the patch applied and the `null` keys deleted,
+  ready for `TradeSchema.safeParse`. It's pure, so both the handler and the
+  tests use it.
+- **Store** (`TradeStore`):
+  - `replace(userId, record, expectedUpdatedAt)` throws `TradeNotFoundError`
+    or `TradeConflictError` (decision 5).
+  - `delete(userId, id): Promise<boolean>` returns false when there was
+    nothing to delete.
+  - The in-memory store enforces the same conditions.
+- The body is decoded as on create (base64 when `isBase64Encoded`). Ids are
+  lowercased before use, as in get-trade.
+
+| Case                                                                       | Status | Body                                                    |
+| -------------------------------------------------------------------------- | ------ | ------------------------------------------------------- |
+| No access token, ID token, or no `sub`                                     | 401    | `{ message: "Unauthorized" }`                           |
+| Body isn't JSON                                                            | 400    | `{ message: "Body must be valid JSON" }`                |
+| Body fails `UpdateTradeRequestSchema`                                      | 400    | `{ message: "Invalid trade", fieldErrors, formErrors }` |
+| Merged trade fails `TradeSchema`                                           | 400    | `{ message: "Invalid trade", fieldErrors, formErrors }` |
+| Not found, another user's, a non-UUID `id`, or a delete of a deleted trade | 404    | `{ message: "Trade not found" }`                        |
+| `PATCH` lost a race with another write (decision 5)                        | 409    | `{ message: "Trade changed while saving" }`             |
+| DynamoDB error or a stored item fails parsing                              | 500    | `{ message: "Internal error" }`                         |
+
+- The id is checked before the body is parsed. A `PATCH` with a non-UUID
+  id is 404 even when its body is bad.
+- A 204 has no `content-type`. Every other response has the same headers
+  as #6.
+
+### Infra (#9)
+
+- `UpdateTradeFunction` is allowed `dynamodb:GetItem` and
+  `dynamodb:PutItem` on the table ARN. `DeleteTradeFunction` is allowed
+  `dynamodb:DeleteItem` on the table ARN. Nothing else, and no `grant*`
+  helpers (#6 decision 1). Both get `TABLE_NAME`.
+- Routes: `PATCH /trades/{id}` and `DELETE /trades/{id}`, behind the JWT
+  authorizer.
+- CORS `allowMethods` adds `PATCH` and `DELETE`.
+- No table change.
+
+### Dialog modes
+
+`TradeDialog` gains `mode: 'new' | 'edit' | 'close'` and `trade?: TradeView`
+(required for edit and close). New trade is unchanged.
+
+| Part          | New trade                          | Edit trade                                                       | Close trade  |
+| ------------- | ---------------------------------- | ---------------------------------------------------------------- | ------------ |
+| Title         | New trade                          | Edit trade                                                       | Close trade  |
+| Starts from   | Remembered defaults, entry now     | The trade's values, times in local time                          | Same as Edit |
+| Focus on open | Symbol                             | Symbol                                                           | Exit         |
+| Save button   | Save trade                         | Save changes                                                     | Save changes |
+| Request       | `POST /trades`                     | `PATCH /trades/{id}` with the diff (decision 10)                 | Same as Edit |
+| Toast         | Trade saved                        | Changes saved; **Trade closed** if it was open and is now closed | Same as Edit |
+| Discard ask   | Anything but Type and Side changed | Anything changed, Type and Side included                         | Same as Edit |
+| Discard copy  | Discard this trade?                | Discard changes?                                                 | Same as Edit |
+| Delete        | —                                  | **Delete trade** under Notes                                     | Same as Edit |
+
+- The fields, layout, validation, error copy, keyboard and result strip are
+  exactly #7's. The result strip shows the edited trade's numbers live, and
+  the header's "Open" follows the exit fields.
+- **Delete trade** is a danger button
+  ([system.md](../design/system.md#buttons)) on its own row at the end of
+  the field area, left aligned. It's kept out of the footer, so it is
+  never next to Save, and the phone footer keeps its two buttons.
+- **Confirming:** Delete trade swaps the footer for the question **Delete
+  this trade? This can't be undone.** with **Keep trade** (ghost, focused)
+  and **Delete trade** (danger). Esc and Keep trade go back to the form,
+  with its values kept and focus on the first Delete trade button. This is
+  the discard question's pattern.
+- **Deleting:** the danger button reads "Deleting…", and nothing closes the
+  dialog until the request settles.
+  - **204**, or a 404 (it's gone either way): the dialog closes, the toast
+    says **Trade deleted**, and the list reloads.
+  - **401**: the session alert.
+  - **Anything else:** the alert "Couldn't delete the trade. Check your
+    connection and try again." The question stays, so it can be tried
+    again.
+- **Saving an edit** follows #7's Saving steps with these differences:
+  - **200** is parsed with `TradeViewSchema`.
+  - **404**: the alert "This trade has been deleted." Save changes is
+    disabled, and closing the dialog reloads the list.
+  - **409**: the alert "This trade changed while you were saving. Close it
+    and open it again to see the latest." The values stay.
+  - A 200 body that fails parsing gets the "may have been saved" alert,
+    worded for an edit: "The changes may have been saved. Check the list
+    before saving again."
+- `apps/web/src/api.ts` gains
+  `updateTrade(apiUrl, token, id, patch, fetchFn?, signal?)`, which returns
+  the `TradeView`, and `deleteTrade(apiUrl, token, id, fetchFn?, signal?)`.
+  `deleteTrade` resolves on a 204 or a 404 and throws `ApiError` otherwise.
+
+### Trade list changes
+
+```
+│ Nov 19 · 09:41  MES     ▲ Long      2      +$98.76   +1.98 R  Closed       │
+│ Nov 19 · 10:30  AAPL    ▲ Long     50            —         —  [Open] Close │
+```
+
+- **Symbol is a button.** Its text stays the symbol in mono, and its
+  accessible name is "Edit MES long trade, Nov 19 · 09:41". A `::after`
+  stretches its hit area over the row (desktop) or the card (phone), and a
+  hover gives the row `--raised`. A table row isn't made a button itself,
+  so the cells still read as a table.
+- **Close** is a quiet button (`--link`) after the Open badge, above the
+  stretched area. Its name is "Close AAPL long trade, Nov 19 · 10:30". On a
+  phone it sits at the end of line 1, after the badge. Closed trades have
+  no Close.
+- Tab order per row: the symbol button, then Close if there is one. Both
+  are at least 44px tall.
+- **Focus after the dialog:**
+  - After an edit or a cancel, focus returns to the button that opened the
+    dialog.
+  - If the reload then drops that trade, for example when its new
+    `openedAt` moves it past the first page, focus moves to the `<h1>`.
+  - After a delete, focus goes to the `<h1>`. The toast announces "Trade
+    deleted".
+- The table caption becomes "Your trades, newest first. Choose a symbol to
+  edit."
+
+### Automated tests (#9)
+
+- **Shared** (`trade-api.test.ts`):
+  - `UpdateTradeRequestSchema` accepts a single field, and `null` for each
+    removable field.
+  - It rejects `null` for a required field and for `fees`, `{}`, an
+    unknown key, and `id`, `createdAt`, `updatedAt` and `metrics`.
+  - `applyTradePatch` sets values, deletes `null` keys and leaves absent
+    keys alone.
+- **Handlers** (in-memory store):
+  - Edit worked example A's exit to 5015. The 200 has `netPnl` `"148.76"`
+    and `rMultiple` `"2.98"`, and a following `GET` and the list show the
+    same.
+  - Close example H with `exitPrice` 5010 and `closedAt`. It gets
+    metrics, and `outcome` `win`.
+  - Reopen a closed trade with both exit fields `null`. `netPnl` and
+    `rMultiple` are gone.
+  - Changing `openedAt` moves the trade in the list order.
+  - `updatedAt` changes, and `createdAt` and `id` don't.
+  - **Another user's trade:** user B gets 404 for `PATCH` and `DELETE` on
+    user A's trade, and A's trade is unchanged afterwards and still listed.
+  - 400 for: exit price without exit time on an open trade, a stock with
+    a point value, a stop moved to the wrong side, `{}`, an unknown key, a
+    body that isn't JSON.
+  - A non-UUID id is 404 on both routes.
+  - Delete is 204 with no body, then `GET` is 404 and a second delete is 404.
+  - 409 when the store reports a conflict, and 404 when the trade vanished
+    between the read and the write.
+  - Each route is 401 for the `GET /me` cases.
+- **DynamoDB store** (`aws-sdk-client-mock`):
+  - `replace` sends `PutItem` with the caller's `pk`, a recomputed
+    `openedAtKey`, no cleared attributes and the `updatedAt` condition.
+  - `delete` sends `DeleteItem` with `attribute_exists(sk)`.
+  - `ConditionalCheckFailedException` maps to not-found or conflict as
+    described in decision 5.
+- **Infra:**
+  - Both routes use the JWT authorizer.
+  - The update role has exactly `GetItem` and `PutItem`, and the delete
+    role exactly `DeleteItem`, all on the table only.
+  - The existing roles are unchanged.
+  - CORS allows `PATCH` and `DELETE`.
+- **Web:**
+  - **Opening:** the symbol button opens Edit trade filled with the
+    trade's values, times shown in local time (`TZ=America/New_York`).
+    Close opens Close trade with focus on Exit. Close isn't shown for a
+    closed trade.
+  - **Diff:** changing only the stop sends exactly
+    `{ "plannedStop": "…" }`. Clearing the target sends
+    `"plannedTarget": null`. Switching a future to a stock sends
+    `"instrumentType": "stock", "pointValue": null`. Clearing fees sends
+    `"0"`. Untouched times aren't sent. With no changes, nothing is sent.
+  - **Closing:** typing an exit price fills the exit time. ⌘ Enter sends
+    `exitPrice` and `closedAt`. The toast says "Trade closed" and the list
+    reloads with the row's new P&L and R.
+  - **Delete:** the question appears with Keep trade focused. Esc and Keep
+    trade send nothing. Delete trade sends one `DELETE`, closes on 204 and
+    on 404, says "Trade deleted", reloads the list and focuses the `<h1>`.
+    A 500 keeps the question with the alert.
+  - **Errors:** a 400 lands on its field, a 404 shows "This trade has been
+    deleted." and disables Save, a 409 shows its alert with the values
+    kept, and a 401 shows the session alert.
+  - **Discard:** changing Side on an edit asks "Discard changes?".
+  - **Defaults:** saving an edit leaves `localStorage` untouched.
+  - **`updateTrade` and `deleteTrade`** (`api.test.ts`): the method, URL,
+    body and bearer token sent, and the handling of each status above.
+  - **Accessibility:** the row buttons have the names above, and Tab
+    order is symbol, then Close.
+
+### Manual check
+
+- Desktop: edit a closed trade's exit and see P&L and R change in the list
+  and on the calendar. Close an open trade from its row with the keyboard
+  only. Reopen it. Delete a trade, then cancel a delete with Esc.
+- Phone (375px and 320px): tap a card to edit it, and use Close on an open
+  card. The delete question fits without sideways scroll.
+
+### Out of scope for #9
+
+- Undo for delete, or a soft delete.
+- Version checks from the client (`If-Match` on `updatedAt`), so an edit
+  made in another tab while a dialog is open can be detected. Field-level
+  diffs cover the common case (decision 5).
+- Opening trades from the calendar, and the trade detail (#13).
+- Bulk edit and bulk delete.
+- Edit history or an audit log.
+
 ## Open questions
 
 - Should breakeven allow a small tolerance, such as net P&L within ±fees?
   This spec says no: only exactly zero is breakeven. #17's stats spec can
   revisit it.
+- Should delete be undoable? This spec says no (decision 6): a
+  confirmation is enough for a personal journal, and an undo needs a soft
+  delete that every query has to skip. Revisit if a trade is ever lost by
+  mistake.

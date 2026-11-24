@@ -496,6 +496,7 @@ Motion only answers something the trader did. Nothing moves on its own.
 ## Open questions
 
 - Chip styling for setup and mistake tags (#12).
-- Should the trade list (#8) open trades in the same dialog (#9 edit) or a
-  side panel (#13 detail)?
+- Should the trade detail (#13) be a side panel or a page? For #9, the
+  list opens a trade in the same dialog as New trade, for editing
+  ([trades.md](../spec/trades.md#edit-close-and-delete-9)).
 - A light theme later? The tokens are ready for one; nothing is designed.
