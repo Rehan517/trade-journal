@@ -394,7 +394,7 @@ describe('Load more', () => {
     fireEvent.click(button);
     await waitFor(() => expect(bodyRows()).toHaveLength(26));
     const after = screen.getByRole('button', { name: 'Load more' });
-    expect(document.activeElement).toBe(after);
+    await waitFor(() => expect(document.activeElement).toBe(after));
   });
 
   it('moves focus to the first new row when the button disappears', async () => {
@@ -408,7 +408,7 @@ describe('Load more', () => {
     button.focus();
     fireEvent.click(button);
     await waitFor(() => expect(bodyRows()).toHaveLength(27));
-    expect(document.activeElement).toBe(bodyRows()[25]);
+    await waitFor(() => expect(document.activeElement).toBe(bodyRows()[25]));
   });
 
   it('keeps rows on failure, shows the alert, and Retry refetches the same cursor', async () => {
@@ -427,7 +427,7 @@ describe('Load more', () => {
     expect(alert.textContent).toContain('Couldn’t load more trades');
     expect(bodyRows()).toHaveLength(25);
     const retry = within(alert).getByRole('button', { name: 'Retry' });
-    expect(document.activeElement).toBe(retry);
+    await waitFor(() => expect(document.activeElement).toBe(retry));
     fail = false;
     fireEvent.click(retry);
     await waitFor(() => expect(bodyRows()).toHaveLength(26));
@@ -612,8 +612,10 @@ describe('saving from the Trades page', () => {
     fireEvent.click(opener);
     await fillAndSave2();
     await waitFor(() => expect(opener.isConnected).toBe(false));
-    expect(document.activeElement).toBe(
-      screen.getByRole('heading', { level: 1, name: 'Trades' }),
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('heading', { level: 1, name: 'Trades' }),
+      ),
     );
   });
 });
@@ -710,7 +712,7 @@ describe('refresh, token renewal and focus (review fixes)', () => {
     fail = false;
     fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
     const button = await screen.findByRole('button', { name: 'Loading…' });
-    expect(document.activeElement).toBe(button);
+    await waitFor(() => expect(document.activeElement).toBe(button));
     await act(async () => {
       retry.resolve(json({ items: [trade({ symbol: 'N1' })] }));
     });
@@ -725,8 +727,10 @@ describe('refresh, token renewal and focus (review fixes)', () => {
     renderPage(fetchFn);
     fireEvent.click(await screen.findByRole('button', { name: 'Load more' }));
     const alert = await screen.findByRole('alert');
-    expect(document.activeElement).toBe(
-      within(alert).getByRole('button', { name: 'Sign in' }),
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(alert).getByRole('button', { name: 'Sign in' }),
+      ),
     );
   });
 });

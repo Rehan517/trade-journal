@@ -171,7 +171,9 @@ describe('opening a trade from the list', () => {
     setup();
     fireEvent.click(await inTable().findByRole('button', { name: CLOSE_MES }));
     expect(screen.getByRole('heading', { name: 'Close trade' })).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByLabelText('Exit'));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText('Exit')),
+    );
   });
 });
 
@@ -359,8 +361,10 @@ describe('deleting', () => {
     expect(
       screen.getByText(/Delete this trade\? This can.t be undone\./),
     ).toBeTruthy();
-    expect(document.activeElement).toBe(
-      screen.getByRole('button', { name: 'Keep trade' }),
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Keep trade' }),
+      ),
     );
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(screen.queryByText(/This can.t be undone/)).toBeNull();
@@ -545,7 +549,7 @@ describe('gaps found in the audit', () => {
     fireEvent.click(opener);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(document.activeElement).toBe(opener);
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
   it('moves focus to the heading when the reload drops the edited trade', async () => {
