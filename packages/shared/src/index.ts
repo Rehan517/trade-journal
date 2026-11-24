@@ -50,6 +50,8 @@ export {
   ListTradesResponseSchema,
   TradeMetricsSchema,
   TradeViewSchema,
+  UpdateTradeRequestSchema,
+  applyTradePatch,
   computeTradeMetrics,
   toTradeView,
 } from './trade-api.js';
@@ -61,4 +63,6 @@ export type {
   ListTradesResponse,
   TradeMetrics,
   TradeView,
+  UpdateTradeRequest,
+  UpdateTradeRequestInput,
 } from './trade-api.js';

@@ -1069,7 +1069,10 @@ trade in the same dialog as New trade, filled in. Areas: `packages/shared`,
    attributes without a `REMOVE` clause, and it recomputes `openedAtKey`. A
    changed `openedAt` then moves the trade in the `byOpenedAt` index (the
    LSI follows the item, #6 decision 5). `id` and `createdAt` are kept and
-   `updatedAt` is set to now.
+   `updatedAt` is set to now. If now isn't later than the stored
+   `updatedAt` (two writes in one millisecond, or a clock behind the last
+   writer's), it's set 1 ms after the stored value instead. The next write
+   is conditional on `updatedAt`, so it must change on every write.
 5. **Concurrent writes fail rather than overwrite.** The read uses
    `ConsistentRead`, and the put is conditional on
    `attribute_exists(sk) AND updatedAt = :readUpdatedAt`. If the condition

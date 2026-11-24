@@ -821,6 +821,13 @@ p {
   gap: var(--s-3) 14px;
 }
 
+/* Delete trade: its own row under the fields, never beside Save (#9) */
+.dlg__delete {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: var(--s-4);
+}
+
 /* Field */
 .cell {
   grid-column: span 2;
@@ -1256,7 +1263,8 @@ p {
 
   .btn,
   .topbar__link,
-  .segmented__face {
+  .segmented__face,
+  .trades__table tbody tr:hover td {
     transition: none;
   }
 
@@ -1400,6 +1408,63 @@ p {
   outline-offset: -2px;
 }
 
+/*
+ * The symbol is the row's button (#9). Its ::after stretches the hit area
+ * over the whole row or card; a table row can't be a button itself, so the
+ * cells still read as a table.
+ */
+.trades__table tbody tr,
+.tcard {
+  position: relative;
+}
+
+.trades__edit {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.trades__edit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.trades__table tbody tr:hover td {
+  background: var(--raised);
+  transition: background-color var(--m-fast) var(--ease-out);
+}
+
+.trades__table tbody tr:last-child td:first-child {
+  border-bottom-left-radius: calc(var(--r-dialog) - 1px);
+}
+
+.trades__table tbody tr:last-child td:last-child {
+  border-bottom-right-radius: calc(var(--r-dialog) - 1px);
+}
+
+/* Close sits above the stretched area, so it takes its own click. */
+.trades__close {
+  position: relative;
+  z-index: 1;
+  margin-left: var(--s-1);
+  color: var(--link);
+}
+
+.tcard__line:not(.tcard__line--sub) {
+  align-items: center;
+}
+
+.tcard__lead {
+  align-items: center;
+}
+
 .trades__empty {
   display: flex;
   flex-direction: column;
@@ -1507,6 +1572,16 @@ p {
 
   .trades__table th.trades__qty,
   .trades__table td.trades__qty {
+    padding-inline: var(--s-1);
+  }
+
+  /* Open and Close share the narrowed Status column, one over the other */
+  .trades__table td.trades__status {
+    white-space: normal;
+  }
+
+  .trades__close {
+    margin-left: 0;
     padding-inline: var(--s-1);
   }
 

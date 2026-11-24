@@ -12,6 +12,7 @@ import {
   type InstrumentType,
   type TradeMathInput,
   type TradeSide,
+  type TradeView,
 } from '@trade-journal/shared';
 import {
   FIELD_ORDER,
@@ -19,7 +20,7 @@ import {
   placeIssue,
   type FieldName,
 } from './errorCopy.ts';
-import { localToUtc } from './format.ts';
+import { localToUtc, toLocalInputValue } from './format.ts';
 
 /** What's typed in the form: every value is the text of its input. */
 export interface FormValues {
@@ -69,6 +70,60 @@ export function buildBody(values: FormValues): Record<string, unknown> {
   if (values.closedAt !== '') body.closedAt = localToUtc(values.closedAt);
   if (values.notes !== '') body.notes = values.notes;
   return body;
+}
+
+/**
+ * The form's starting values for a stored trade. Times are shown to the
+ * minute in the device's time zone (#9 decision 11).
+ */
+export function valuesFromTrade(trade: TradeView): FormValues {
+  const local = (iso: string | undefined) => {
+    if (iso === undefined) return '';
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? '' : toLocalInputValue(date);
+  };
+  return {
+    instrumentType: trade.instrumentType,
+    side: trade.side,
+    symbol: trade.symbol,
+    pointValue: trade.pointValue ?? '',
+    quantity: trade.quantity,
+    entryPrice: trade.entryPrice,
+    exitPrice: trade.exitPrice ?? '',
+    fees: trade.fees,
+    openedAt: local(trade.openedAt),
+    closedAt: local(trade.closedAt),
+    plannedStop: trade.plannedStop ?? '',
+    plannedTarget: trade.plannedTarget ?? '',
+    notes: trade.notes ?? '',
+  };
+}
+
+/**
+ * The merge patch for an edit (#9 decision 10): a key whose value differs is
+ * sent; a key that was there and is gone is `null`, except fees, which go
+ * back to "0". An untouched time is the same text in both bodies, so it is
+ * never sent and keeps its stored precision. Empty means nothing changed.
+ */
+export function diffBody(
+  original: FormValues,
+  current: FormValues,
+): Record<string, unknown> {
+  const before = buildBody(original);
+  const after = buildBody(current);
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(after)) {
+    if (before[key] !== value) patch[key] = value;
+  }
+  for (const key of Object.keys(before)) {
+    if (key in after) continue;
+    if (key === 'fees') {
+      if (before.fees !== '0') patch.fees = '0';
+    } else {
+      patch[key] = null;
+    }
+  }
+  return patch;
 }
 
 export type CheckResult =

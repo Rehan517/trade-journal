@@ -1,8 +1,10 @@
 import {
+  ConditionalCheckFailedException,
   DynamoDBClient,
   type DynamoDBClientConfig,
 } from '@aws-sdk/client-dynamodb';
 import {
+  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -30,7 +32,24 @@ export type ListResult = { items: TradeRecord[]; lastKey?: ListKey };
 export interface TradeStore {
   /** Fails if the trade already exists. */
   put(userId: string, record: TradeRecord): Promise<void>;
-  get(userId: string, id: string): Promise<TradeRecord | undefined>;
+  /** `consistent` asks for a strongly consistent read (the PATCH path). */
+  get(
+    userId: string,
+    id: string,
+    options?: { consistent?: boolean },
+  ): Promise<TradeRecord | undefined>;
+  /**
+   * Overwrites a stored trade, only if it still exists and its `updatedAt`
+   * equals `expectedUpdatedAt`. Throws `TradeNotFoundError` when it's gone
+   * and `TradeConflictError` when it changed.
+   */
+  replace(
+    userId: string,
+    record: TradeRecord,
+    expectedUpdatedAt: string,
+  ): Promise<void>;
+  /** Returns false when there was nothing to delete. */
+  delete(userId: string, id: string): Promise<boolean>;
   /** Newest `openedAt` first. */
   list(
     userId: string,
@@ -40,6 +59,12 @@ export interface TradeStore {
 
 /** A stored item that doesn't parse. A server bug, not a user error. */
 export class CorruptItemError extends Error {}
+
+/** `replace` found no trade to replace. */
+export class TradeNotFoundError extends Error {}
+
+/** `replace` found the trade changed since it was read. */
+export class TradeConflictError extends Error {}
 
 /** The cursor is outside the requested date range. A client error. */
 export class InvalidCursorError extends Error {}
@@ -122,6 +147,13 @@ export function parseRecord(item: unknown): TradeRecord {
   return { trade: trade.data, ...stamps.data };
 }
 
+function isConditionFailure(err: unknown): boolean {
+  return (
+    err instanceof ConditionalCheckFailedException ||
+    (err instanceof Error && err.name === 'ConditionalCheckFailedException')
+  );
+}
+
 export class DynamoTradeStore implements TradeStore {
   private doc: DynamoDBDocumentClient | undefined;
 
@@ -161,14 +193,67 @@ export class DynamoTradeStore implements TradeStore {
     );
   }
 
-  async get(userId: string, id: string): Promise<TradeRecord | undefined> {
+  async get(
+    userId: string,
+    id: string,
+    options: { consistent?: boolean } = {},
+  ): Promise<TradeRecord | undefined> {
     const res = await this.client().send(
       new GetCommand({
         TableName: this.tableName(),
         Key: { pk: userPk(userId), sk: tradeSk(id) },
+        ...(options.consistent ? { ConsistentRead: true } : {}),
       }),
     );
     return res.Item === undefined ? undefined : parseRecord(res.Item);
+  }
+
+  async replace(
+    userId: string,
+    record: TradeRecord,
+    expectedUpdatedAt: string,
+  ): Promise<void> {
+    const { trade, createdAt, updatedAt } = record;
+    try {
+      await this.client().send(
+        new PutCommand({
+          TableName: this.tableName(),
+          Item: {
+            ...trade,
+            createdAt,
+            updatedAt,
+            pk: userPk(userId),
+            sk: tradeSk(trade.id),
+            openedAtKey: openedAtKey(trade.openedAt, trade.id),
+          },
+          ConditionExpression:
+            'attribute_exists(sk) AND updatedAt = :readUpdatedAt',
+          ExpressionAttributeValues: { ':readUpdatedAt': expectedUpdatedAt },
+        }),
+      );
+    } catch (err) {
+      if (!isConditionFailure(err)) throw err;
+      // Gone, or changed? Read once more to tell them apart.
+      const now = await this.get(userId, trade.id, { consistent: true });
+      if (!now) throw new TradeNotFoundError('Trade not found');
+      throw new TradeConflictError('Trade changed while saving');
+    }
+  }
+
+  async delete(userId: string, id: string): Promise<boolean> {
+    try {
+      await this.client().send(
+        new DeleteCommand({
+          TableName: this.tableName(),
+          Key: { pk: userPk(userId), sk: tradeSk(id) },
+          ConditionExpression: 'attribute_exists(sk)',
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionFailure(err)) return false;
+      throw err;
+    }
   }
 
   async list(

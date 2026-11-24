@@ -39,7 +39,7 @@ const routeFor = (key: string) =>
   routes.find(([, r]) => r.Properties.RouteKey === key);
 const [tableId] = first('AWS::DynamoDB::GlobalTable');
 const functions = all('AWS::Lambda::Function').filter(([id]) =>
-  /^Api(Health|Me|CreateTrade|GetTrade|ListTrades)Function[0-9A-F]{8}$/.test(
+  /^Api(Health|Me|CreateTrade|GetTrade|ListTrades|UpdateTrade|DeleteTrade)Function[0-9A-F]{8}$/.test(
     id,
   ),
 );
@@ -63,15 +63,17 @@ const statementsOf = (name: string): Record<string, unknown>[] => {
 };
 const tableArn = { 'Fn::GetAtt': [tableId, 'Arn'] };
 
-test('stack has exactly one HTTP API, one stage, one authorizer and five routes', () => {
+test('stack has exactly one HTTP API, one stage, one authorizer and seven routes', () => {
   expect(all('AWS::ApiGatewayV2::Api')).toHaveLength(1);
   expect(all('AWS::ApiGatewayV2::Stage')).toHaveLength(1);
   expect(all('AWS::ApiGatewayV2::Authorizer')).toHaveLength(1);
   expect(routes.map(([, r]) => r.Properties.RouteKey).sort()).toEqual([
+    'DELETE /trades/{id}',
     'GET /health',
     'GET /me',
     'GET /trades',
     'GET /trades/{id}',
+    'PATCH /trades/{id}',
     'POST /trades',
   ]);
   expect(api.Properties.ProtocolType).toBe('HTTP');
@@ -97,7 +99,13 @@ describe('CORS', () => {
   });
 
   test('methods, headers and max age', () => {
-    expect([...cors().AllowMethods].sort()).toEqual(['GET', 'OPTIONS', 'POST']);
+    expect([...cors().AllowMethods].sort()).toEqual([
+      'DELETE',
+      'GET',
+      'OPTIONS',
+      'PATCH',
+      'POST',
+    ]);
     expect([...cors().AllowHeaders].sort()).toEqual([
       'authorization',
       'content-type',
@@ -140,16 +148,19 @@ describe('routes and authorization', () => {
     });
   });
 
-  test.each(['POST /trades', 'GET /trades/{id}', 'GET /trades'])(
-    '%s uses the same JWT authorizer as GET /me',
-    (key) => {
-      const props = routeFor(key)?.[1].Properties;
-      expect(props?.AuthorizationType).toBe('JWT');
-      expect(props?.AuthorizerId).toEqual(
-        routeFor('GET /me')?.[1].Properties.AuthorizerId,
-      );
-    },
-  );
+  test.each([
+    'POST /trades',
+    'GET /trades/{id}',
+    'GET /trades',
+    'PATCH /trades/{id}',
+    'DELETE /trades/{id}',
+  ])('%s uses the same JWT authorizer as GET /me', (key) => {
+    const props = routeFor(key)?.[1].Properties;
+    expect(props?.AuthorizationType).toBe('JWT');
+    expect(props?.AuthorizerId).toEqual(
+      routeFor('GET /me')?.[1].Properties.AuthorizerId,
+    );
+  });
 
   test('GET /health is public', () => {
     const props = routeFor('GET /health')?.[1].Properties;
@@ -173,8 +184,8 @@ describe('$default stage', () => {
 });
 
 describe('Lambda functions', () => {
-  test('there are exactly five handler functions', () => {
-    expect(functions).toHaveLength(5);
+  test('there are exactly seven handler functions', () => {
+    expect(functions).toHaveLength(7);
   });
 
   test('all are arm64 on Node.js 22.x', () => {
@@ -188,7 +199,7 @@ describe('Lambda functions', () => {
     const roleIds = functions.map(([id]) =>
       roleIdOf(id.replace(/^Api/, '').replace(/Function[0-9A-F]{8}$/, '')),
     );
-    expect(new Set(roleIds).size).toBe(5);
+    expect(new Set(roleIds).size).toBe(7);
     for (const roleId of roleIds) {
       const role = template.toJSON().Resources[roleId];
       expect(role.Properties.Policies).toBeUndefined();
@@ -216,6 +227,22 @@ describe('Lambda functions', () => {
     ]);
   });
 
+  test('UpdateTrade can only GetItem and PutItem on the table', () => {
+    expect(statementsOf('UpdateTrade')).toEqual([
+      {
+        Action: ['dynamodb:GetItem', 'dynamodb:PutItem'],
+        Effect: 'Allow',
+        Resource: tableArn,
+      },
+    ]);
+  });
+
+  test('DeleteTrade can only DeleteItem on the table', () => {
+    expect(statementsOf('DeleteTrade')).toEqual([
+      { Action: 'dynamodb:DeleteItem', Effect: 'Allow', Resource: tableArn },
+    ]);
+  });
+
   test('ListTrades can only Query the byOpenedAt index', () => {
     expect(statementsOf('ListTrades')).toEqual([
       {
@@ -227,7 +254,13 @@ describe('Lambda functions', () => {
   });
 
   test('trade functions get TABLE_NAME referencing the table', () => {
-    for (const name of ['CreateTrade', 'GetTrade', 'ListTrades']) {
+    for (const name of [
+      'CreateTrade',
+      'GetTrade',
+      'ListTrades',
+      'UpdateTrade',
+      'DeleteTrade',
+    ]) {
       expect(functionNamed(name)[1].Properties.Environment.Variables).toEqual({
         TABLE_NAME: { Ref: tableId },
       });
@@ -241,14 +274,14 @@ describe('Lambda functions', () => {
     const groups = all('AWS::Logs::LogGroup').filter(([id]) =>
       id.startsWith('Api'),
     );
-    expect(groups).toHaveLength(5);
+    expect(groups).toHaveLength(7);
     for (const [, g] of groups) {
       expect(g.Properties.RetentionInDays).toBe(30);
     }
     const referenced = functions.map(
       ([, f]) => f.Properties.LoggingConfig?.LogGroup,
     );
-    expect(referenced).toHaveLength(5);
+    expect(referenced).toHaveLength(7);
     expect(referenced).toEqual(
       expect.arrayContaining(groups.map(([id]) => ({ Ref: id }))),
     );

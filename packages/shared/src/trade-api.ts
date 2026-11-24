@@ -6,6 +6,10 @@ import {
   type Trade,
 } from './trade.js';
 import {
+  NonNegativeDecimalStringSchema,
+  PositiveDecimalStringSchema,
+} from './decimal.js';
+import {
   grossPnl,
   initialRisk,
   netPnl,
@@ -23,6 +27,48 @@ export const CreateTradeRequestSchema = TradeFieldsSchema.omit({ id: true })
 
 export type CreateTradeRequest = z.output<typeof CreateTradeRequestSchema>;
 export type CreateTradeRequestInput = z.input<typeof CreateTradeRequestSchema>;
+
+/**
+ * `PATCH /trades/{id}` body: a merge patch. Every field but `id` is optional;
+ * the removable ones can also be `null`. Cross-field rules run on the merged
+ * trade, not here. `fees` is redeclared without its default so an absent
+ * `fees` stays absent instead of resetting the stored value.
+ */
+export const UpdateTradeRequestSchema = TradeFieldsSchema.omit({ id: true })
+  .partial()
+  .extend({
+    fees: NonNegativeDecimalStringSchema.optional(),
+    pointValue: PositiveDecimalStringSchema.nullable().optional(),
+    exitPrice: PositiveDecimalStringSchema.nullable().optional(),
+    closedAt: IsoDateTimeSchema.nullable().optional(),
+    plannedStop: PositiveDecimalStringSchema.nullable().optional(),
+    plannedTarget: PositiveDecimalStringSchema.nullable().optional(),
+    notes: z.string().max(5000).nullable().optional(),
+  })
+  .strict()
+  .refine((patch) => Object.values(patch).some((v) => v !== undefined), {
+    message: 'Body must change at least one field',
+  });
+
+export type UpdateTradeRequest = z.output<typeof UpdateTradeRequestSchema>;
+export type UpdateTradeRequestInput = z.input<typeof UpdateTradeRequestSchema>;
+
+/**
+ * The stored trade with the patch applied and `null` keys deleted, ready for
+ * `TradeSchema.safeParse`. Pure. Absent keys are left alone.
+ */
+export function applyTradePatch(
+  trade: Trade,
+  patch: UpdateTradeRequestInput,
+): unknown {
+  const merged: Record<string, unknown> = { ...trade };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (value === null) delete merged[key];
+    else merged[key] = value;
+  }
+  return merged;
+}
 
 export const TradeMetricsSchema = z.object({
   grossPnl: z.string().optional(),

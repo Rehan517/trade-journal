@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, createTrade, fetchMe, listTrades } from './api.ts';
+import {
+  ApiError,
+  INVALID_RESPONSE_STATUS,
+  createTrade,
+  deleteTrade,
+  fetchMe,
+  listTrades,
+  updateTrade,
+} from './api.ts';
 
 const apiUrl = 'https://abc123defg.execute-api.ap-southeast-2.amazonaws.com';
 
@@ -307,5 +315,122 @@ describe('listTrades', () => {
     await expect(listTrades(apiUrl, 'tok', {}, fetchFn)).rejects.toBeInstanceOf(
       TypeError,
     );
+  });
+});
+
+describe('updateTrade', () => {
+  const id = '3f0c1c52-6a3a-4f0e-9d0c-8a8f4f3b7a11';
+  const view = {
+    id,
+    symbol: 'MES',
+    instrumentType: 'future',
+    side: 'long',
+    quantity: '2',
+    pointValue: '5',
+    entryPrice: '5000',
+    openedAt: '2026-11-19T14:30:00.000Z',
+    fees: '0',
+    createdAt: '2026-11-19T14:31:00.000Z',
+    updatedAt: '2026-11-19T14:32:00.000Z',
+    metrics: {},
+  };
+  const patch = { plannedStop: '4995', plannedTarget: null };
+
+  it('PATCHes the merge patch with the bearer token and returns the TradeView', async () => {
+    const fetchFn = respond(JSON.stringify(view), 200);
+    const trade = await updateTrade(apiUrl, 'tok', id, patch, fetchFn);
+    expect(trade.id).toBe(id);
+    const [url, init] = vi.mocked(fetchFn).mock.calls[0]!;
+    expect(url).toBe(`${apiUrl}/trades/${id}`);
+    expect(init?.method).toBe('PATCH');
+    expect(init?.headers).toEqual({
+      Authorization: 'Bearer tok',
+      'Content-Type': 'application/json',
+    });
+    expect(JSON.parse(init?.body as string)).toEqual(patch);
+  });
+
+  it('carries the parsed ErrorBody on a 400', async () => {
+    const errorBody = {
+      message: 'Invalid trade',
+      fieldErrors: {
+        closedAt: ['exitPrice and closedAt must be provided together'],
+      },
+      formErrors: [],
+    };
+    const err = await updateTrade(
+      apiUrl,
+      'tok',
+      id,
+      patch,
+      respond(JSON.stringify(errorBody), 400),
+    ).catch((e: unknown) => e);
+    expect((err as ApiError).status).toBe(400);
+    expect((err as ApiError).body).toEqual(errorBody);
+  });
+
+  it.each([401, 404, 409, 500])(
+    'throws an ApiError with status %i',
+    async (code) => {
+      const err = await updateTrade(
+        apiUrl,
+        'tok',
+        id,
+        patch,
+        respond(JSON.stringify({ message: 'x' }), code),
+      ).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(code);
+      expect((err as ApiError).body).toBeUndefined();
+    },
+  );
+
+  it('throws status 0 for a 200 that is not a TradeView or not JSON', async () => {
+    for (const body of [JSON.stringify({ id }), 'nope']) {
+      const err = await updateTrade(
+        apiUrl,
+        'tok',
+        id,
+        patch,
+        respond(body, 200),
+      ).catch((e: unknown) => e);
+      expect((err as ApiError).status).toBe(INVALID_RESPONSE_STATUS);
+    }
+  });
+});
+
+describe('deleteTrade', () => {
+  const id = '3f0c1c52-6a3a-4f0e-9d0c-8a8f4f3b7a11';
+  const reply = (status: number) =>
+    vi.fn(() =>
+      Promise.resolve(
+        new Response(status === 204 ? null : '{"message":"x"}', { status }),
+      ),
+    ) as unknown as typeof fetch;
+
+  it('DELETEs with the bearer token and resolves on a 204', async () => {
+    const fetchFn = reply(204);
+    await expect(
+      deleteTrade(apiUrl, 'tok', id, fetchFn),
+    ).resolves.toBeUndefined();
+    const [url, init] = vi.mocked(fetchFn).mock.calls[0]!;
+    expect(url).toBe(`${apiUrl}/trades/${id}`);
+    expect(init?.method).toBe('DELETE');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+    expect(init?.body).toBeUndefined();
+  });
+
+  it('resolves on a 404, because the trade is gone either way', async () => {
+    await expect(
+      deleteTrade(apiUrl, 'tok', id, reply(404)),
+    ).resolves.toBeUndefined();
+  });
+
+  it.each([401, 500])('throws an ApiError with status %i', async (code) => {
+    const err = await deleteTrade(apiUrl, 'tok', id, reply(code)).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(code);
   });
 });

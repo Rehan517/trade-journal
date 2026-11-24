@@ -6,6 +6,8 @@ import {
   type ListResult,
   type TradeRecord,
   type TradeStore,
+  TradeConflictError,
+  TradeNotFoundError,
   tradeSk,
 } from './trade-store.js';
 
@@ -23,9 +25,33 @@ export class MemoryTradeStore implements TradeStore {
     return Promise.resolve();
   }
 
+  // Reads are always consistent here, so the options are ignored.
   get(userId: string, id: string): Promise<TradeRecord | undefined> {
     const found = this.byUser.get(userId)?.get(id);
     return Promise.resolve(found && structuredClone(found));
+  }
+
+  replace(
+    userId: string,
+    record: TradeRecord,
+    expectedUpdatedAt: string,
+  ): Promise<void> {
+    const trades = this.byUser.get(userId);
+    const stored = trades?.get(record.trade.id);
+    if (!trades || !stored) {
+      return Promise.reject(new TradeNotFoundError('Trade not found'));
+    }
+    if (stored.updatedAt !== expectedUpdatedAt) {
+      return Promise.reject(
+        new TradeConflictError('Trade changed while saving'),
+      );
+    }
+    trades.set(record.trade.id, structuredClone(record));
+    return Promise.resolve();
+  }
+
+  delete(userId: string, id: string): Promise<boolean> {
+    return Promise.resolve(this.byUser.get(userId)?.delete(id) ?? false);
   }
 
   list(

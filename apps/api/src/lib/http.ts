@@ -32,3 +32,12 @@ export const validationError = (message: string, err: z.ZodError) => {
   const { fieldErrors, formErrors } = z.flattenError(err);
   return error(400, { message, fieldErrors, formErrors });
 };
+
+export const conflict = () =>
+  error(409, { message: 'Trade changed while saving' });
+
+/** 204: no body and no content-type. */
+export const noContent = (): APIGatewayProxyStructuredResultV2 => ({
+  statusCode: 204,
+  headers: { 'cache-control': 'no-store' },
+});

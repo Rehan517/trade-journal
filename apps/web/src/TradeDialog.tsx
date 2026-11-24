@@ -7,7 +7,16 @@ type FormProps = Parameters<typeof TradeForm>[0];
 
 export type TradeDialogProps = Omit<
   FormProps,
-  'onSaved' | 'onCancel' | 'onDirtyChange' | 'onSavingChange' | 'discard'
+  | 'onSaved'
+  | 'onUnchanged'
+  | 'onDeleted'
+  | 'onGone'
+  | 'onCancel'
+  | 'onDirtyChange'
+  | 'onSavingChange'
+  | 'discard'
+  | 'confirmDelete'
+  | 'onAskDelete'
 > & {
   open: boolean;
   /** Entry time to start with, a `datetime-local` value. Now when absent. */
@@ -17,8 +26,15 @@ export type TradeDialogProps = Omit<
    * when it opened (Safari doesn't focus a clicked button).
    */
   returnFocusTo?: HTMLElement | null;
-  /** Called after the dialog has closed on a 201. */
-  onSaved: (trade: TradeView) => void;
+  /** Called after the dialog has closed on a 201 or 200, with the toast text. */
+  onSaved: (trade: TradeView, toast: string) => void;
+  /** Called after the dialog has closed because the trade was deleted. */
+  onDeleted?: () => void;
+  /**
+   * Called when the dialog closes after a save found the trade already
+   * deleted, so the list behind it can reload.
+   */
+  onStale?: () => void;
   /** The trader closed the dialog, or it closed after a save. */
   onClose: () => void;
 };
@@ -34,6 +50,8 @@ export type TradeDialogProps = Omit<
 export function TradeDialog({
   open,
   onSaved,
+  onDeleted,
+  onStale,
   onClose,
   returnFocusTo,
   ...formProps
@@ -44,11 +62,19 @@ export function TradeDialog({
   const saving = useRef(false);
   const [asking, setAsking] = useState(false);
   const askingRef = useRef(false);
+  const [confirming, setConfirming] = useState(false);
+  const confirmingRef = useRef(false);
+  // A save found the trade deleted, so closing the dialog reloads the list.
+  const stale = useRef(false);
   const onCloseRef = useRef(onClose);
+  const onStaleRef = useRef(onStale);
   const returnFocusRef = useRef(returnFocusTo);
+  const modeRef = useRef(formProps.mode);
   useEffect(() => {
     onCloseRef.current = onClose;
+    onStaleRef.current = onStale;
     returnFocusRef.current = returnFocusTo;
+    modeRef.current = formProps.mode;
   });
   // True while the dialog should be showing, and set false just before we
   // close it ourselves, so a close we didn't ask for can be told apart.
@@ -59,8 +85,23 @@ export function TradeDialog({
     setAsking(value);
   }, []);
 
+  const setConfirm = useCallback((value: boolean) => {
+    confirmingRef.current = value;
+    setConfirming(value);
+  }, []);
+
+  const closeNow = useCallback(() => {
+    if (stale.current) onStaleRef.current?.();
+    onCloseRef.current();
+  }, []);
+
   const requestClose = useCallback(() => {
     if (saving.current) return;
+    if (confirmingRef.current) {
+      // Esc on the delete question means "keep the trade".
+      setConfirm(false);
+      return;
+    }
     if (askingRef.current) {
       // Esc on the question means "keep editing".
       setQuestion(false);
@@ -70,8 +111,8 @@ export function TradeDialog({
       setQuestion(true);
       return;
     }
-    onCloseRef.current();
-  }, [setQuestion]);
+    closeNow();
+  }, [setQuestion, setConfirm, closeNow]);
 
   // Open and close the native dialog as `open` changes.
   useEffect(() => {
@@ -82,12 +123,16 @@ export function TradeDialog({
       returnFocusRef.current ?? (active instanceof HTMLElement ? active : null);
     shouldBeOpen.current = true;
     if (!dialog.open) dialog.showModal();
-    dialog.querySelector<HTMLElement>(`#${fieldId('symbol')}`)?.focus();
+    // Close trade starts on Exit, so the price is the first thing typed.
+    const first = modeRef.current === 'close' ? 'exitPrice' : 'symbol';
+    dialog.querySelector<HTMLElement>(`#${fieldId(first)}`)?.focus();
     return () => {
       // The form unmounts with `open`, so the next open starts clean.
       dirty.current = false;
       saving.current = false;
+      stale.current = false;
       setQuestion(false);
+      setConfirm(false);
       shouldBeOpen.current = false;
       if (dialog.open) dialog.close();
       const back = opener.current;
@@ -96,7 +141,7 @@ export function TradeDialog({
     };
     // Only `open`: the opener is read from a ref, so a new `returnFocusTo`
     // can never close and reopen a live dialog.
-  }, [open, setQuestion]);
+  }, [open, setQuestion, setConfirm]);
 
   // Esc is always ours: the browser would close the dialog and lose the form.
   useEffect(() => {
@@ -136,13 +181,27 @@ export function TradeDialog({
     saving.current = value;
   }, []);
 
-  function handleSaved(trade: TradeView) {
+  function finish(after: () => void) {
     // Close now, so the page is live again before the toast's text changes
-    // and screen readers announce "Trade saved".
+    // and screen readers announce it.
     shouldBeOpen.current = false;
     dialogRef.current?.close();
     onClose();
-    onSaved(trade);
+    after();
+  }
+
+  function handleSaved(trade: TradeView, toast: string) {
+    finish(() => onSaved(trade, toast));
+  }
+
+  function handleDeleted() {
+    // The opener is about to go; the page decides where focus lands.
+    opener.current = null;
+    finish(() => onDeleted?.());
+  }
+
+  function handleUnchanged() {
+    finish(() => {});
   }
 
   return (
@@ -151,6 +210,11 @@ export function TradeDialog({
         <TradeForm
           {...formProps}
           onSaved={handleSaved}
+          onUnchanged={handleUnchanged}
+          onDeleted={handleDeleted}
+          onGone={() => {
+            stale.current = true;
+          }}
           onCancel={requestClose}
           onDirtyChange={onDirtyChange}
           onSavingChange={onSavingChange}
@@ -158,10 +222,17 @@ export function TradeDialog({
             asking
               ? {
                   onKeepEditing: () => setQuestion(false),
-                  onDiscard: () => onClose(),
+                  onDiscard: () => closeNow(),
                 }
               : null
           }
+          confirmDelete={
+            confirming ? { onKeep: () => setConfirm(false) } : null
+          }
+          onAskDelete={() => {
+            setQuestion(false);
+            setConfirm(true);
+          }}
         />
       )}
     </dialog>

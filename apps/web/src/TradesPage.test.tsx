@@ -131,6 +131,7 @@ function renderPage(
       accessToken="tok"
       onSignIn={onSignIn}
       onLogTrade={onLogTrade}
+      onOpenTrade={vi.fn()}
       fetchFn={fetchFn}
       {...extra}
     />,
@@ -240,7 +241,7 @@ describe('rows and columns', () => {
   it('shows an open trade with an Open badge and dashes', async () => {
     const { rows } = await setup();
     const c = cellsOf(rows[3]!);
-    expect(c.slice(4)).toEqual(['—', '—', 'Open']);
+    expect(c.slice(4)).toEqual(['—', '—', 'OpenClose']);
     expect(within(rows[3]!).getByText('Open')).toBeTruthy();
   });
 
@@ -292,7 +293,7 @@ describe('rows and columns', () => {
   it('has a caption and scope="col" headers', async () => {
     await setup();
     const table = screen.getByRole('table', {
-      name: 'Your trades, newest first',
+      name: 'Your trades, newest first. Choose a symbol to edit.',
     });
     const heads = within(table).getAllByRole('columnheader');
     expect(heads.map((h) => h.textContent)).toEqual([
@@ -677,6 +678,7 @@ describe('refresh, token renewal and focus (review fixes)', () => {
       apiUrl: config.apiUrl,
       onSignIn: vi.fn(),
       onLogTrade: vi.fn(),
+      onOpenTrade: vi.fn(),
       fetchFn,
     };
     const { rerender } = render(<TradesPage {...props} accessToken="tok" />);

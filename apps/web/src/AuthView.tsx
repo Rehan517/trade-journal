@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { TradeView } from '@trade-journal/shared';
 import { useAuth } from 'react-oidc-context';
 import { buildLogoutUrl, clearAuthParams } from './auth.ts';
 import type { AppConfig } from './config.ts';
@@ -7,6 +8,7 @@ import { Toast } from './FormParts.tsx';
 import { NavLink } from './NavLink.tsx';
 import { useRoute, useRouteEffects } from './router.ts';
 import { TradeDialog } from './TradeDialog.tsx';
+import type { TradeFormMode } from './TradeForm.tsx';
 import { TradesPage } from './TradesPage.tsx';
 
 export function AuthView({
@@ -90,6 +92,13 @@ function Shell({
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   // Entry time for the dialog's next open; undefined means now.
   const [initialOpenedAt, setInitialOpenedAt] = useState<string>();
+  // What the dialog is for: a new trade, or a stored one to edit or close.
+  const [target, setTarget] = useState<{
+    mode: TradeFormMode;
+    trade?: TradeView;
+  }>({ mode: 'new' });
+  // After a delete the opener is gone, so focus goes to the page title.
+  const focusTitleOnClose = useRef(false);
   // Bumped after a save, so the page on screen fetches its data again.
   const [refreshKey, setRefreshKey] = useState(0);
   useRouteEffects(route, dialogOpen);
@@ -97,6 +106,11 @@ function Shell({
   useEffect(() => {
     const closed = wasOpen.current && !dialogOpen;
     wasOpen.current = dialogOpen;
+    if (closed && focusTitleOnClose.current) {
+      focusTitleOnClose.current = false;
+      document.querySelector<HTMLElement>('main h1')?.focus();
+      return;
+    }
     if (!closed || !opener || opener.isConnected) return;
     // The opener was on a page the trader left while the dialog was open.
     if (
@@ -107,8 +121,19 @@ function Shell({
     }
   }, [dialogOpen, opener]);
   const openDialog = (button: HTMLElement, openedAt?: string) => {
+    setTarget({ mode: 'new' });
     setOpener(button);
     setInitialOpenedAt(openedAt);
+    setDialogOpen(true);
+  };
+  const openTrade = (
+    trade: TradeView,
+    mode: 'edit' | 'close',
+    button: HTMLElement,
+  ) => {
+    setTarget({ mode, trade });
+    setOpener(button);
+    setInitialOpenedAt(undefined);
     setDialogOpen(true);
   };
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
@@ -123,6 +148,10 @@ function Shell({
     onLogTrade: (openedAt: string | undefined, button: HTMLElement) =>
       openDialog(button, openedAt),
     refreshKey,
+  };
+  const announce = (message: string) => {
+    toastId.current += 1;
+    setToast({ id: toastId.current, message });
   };
   const signOut = async () => {
     try {
@@ -201,7 +230,7 @@ function Shell({
       </header>
       <main className="home">
         {route === 'trades' ? (
-          <TradesPage {...page} />
+          <TradesPage {...page} onOpenTrade={openTrade} />
         ) : (
           <CalendarPage {...page} />
         )}
@@ -210,16 +239,23 @@ function Shell({
         open={dialogOpen}
         returnFocusTo={opener}
         initialOpenedAt={initialOpenedAt}
+        mode={target.mode}
+        trade={target.trade}
         apiUrl={config.apiUrl}
         accessToken={auth.user?.access_token}
         onSignIn={() => void auth.signinRedirect()}
         fetchFn={fetchFn}
         onClose={() => setDialogOpen(false)}
-        onSaved={() => {
+        onSaved={(_trade, message) => {
           setRefreshKey((k) => k + 1);
-          toastId.current += 1;
-          setToast({ id: toastId.current, message: 'Trade saved' });
+          announce(message);
         }}
+        onDeleted={() => {
+          focusTitleOnClose.current = true;
+          setRefreshKey((k) => k + 1);
+          announce('Trade deleted');
+        }}
+        onStale={() => setRefreshKey((k) => k + 1)}
       />
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>

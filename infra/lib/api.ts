@@ -83,6 +83,16 @@ export class Api extends Construct {
       'list-trades.ts',
       tableEnv,
     );
+    const updateTradeFunction = makeFunction(
+      'UpdateTradeFunction',
+      'update-trade.ts',
+      tableEnv,
+    );
+    const deleteTradeFunction = makeFunction(
+      'DeleteTradeFunction',
+      'delete-trade.ts',
+      tableEnv,
+    );
 
     // One action each, on exactly one resource. No grant* helpers: they add
     // Scan, BatchGetItem and more. Query on an index is authorized against
@@ -106,14 +116,30 @@ export class Api extends Construct {
       }),
     );
 
+    // Update reads the stored trade, then writes the patched one back.
+    updateTradeFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem', 'dynamodb:PutItem'],
+        resources: [props.table.tableArn],
+      }),
+    );
+    deleteTradeFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:DeleteItem'],
+        resources: [props.table.tableArn],
+      }),
+    );
+
     this.httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
       apiName: 'trade-journal-dev',
       createDefaultStage: false,
       corsPreflight: {
         allowOrigins: [props.webUrl, LOCAL_WEB_URL],
         allowMethods: [
+          apigwv2.CorsHttpMethod.DELETE,
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.OPTIONS,
+          apigwv2.CorsHttpMethod.PATCH,
           apigwv2.CorsHttpMethod.POST,
         ],
         allowHeaders: ['authorization', 'content-type'],
@@ -176,6 +202,24 @@ export class Api extends Construct {
       integration: new integrations.HttpLambdaIntegration(
         'ListTradesIntegration',
         listTradesFunction,
+      ),
+    });
+
+    this.httpApi.addRoutes({
+      path: '/trades/{id}',
+      methods: [apigwv2.HttpMethod.PATCH],
+      integration: new integrations.HttpLambdaIntegration(
+        'UpdateTradeIntegration',
+        updateTradeFunction,
+      ),
+    });
+
+    this.httpApi.addRoutes({
+      path: '/trades/{id}',
+      methods: [apigwv2.HttpMethod.DELETE],
+      integration: new integrations.HttpLambdaIntegration(
+        'DeleteTradeIntegration',
+        deleteTradeFunction,
       ),
     });
 

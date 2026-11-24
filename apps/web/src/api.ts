@@ -8,6 +8,7 @@ import {
   type ListTradesResponse,
   type MeResponse,
   type TradeView,
+  type UpdateTradeRequestInput,
 } from '@trade-journal/shared';
 
 export class ApiError extends Error {
@@ -105,6 +106,86 @@ export async function createTrade(
     );
   }
   return parsed.data;
+}
+
+async function readErrorBody(
+  response: Response,
+): Promise<ErrorBody | undefined> {
+  if (response.status !== 400) return undefined;
+  try {
+    const parsed = ErrorBodySchema.safeParse(await response.json());
+    if (parsed.success) return parsed.data;
+  } catch {
+    // Not JSON: the status alone is still reported.
+  }
+  return undefined;
+}
+
+/**
+ * PATCH /trades/{id} with a merge patch. Resolves with the updated trade on a
+ * 200 whose body parses as a `TradeView`. Any other status throws an
+ * `ApiError` with that status (a 400 carries its parsed `ErrorBody`); a 200
+ * with a bad body throws status 0.
+ */
+export async function updateTrade(
+  apiUrl: string,
+  accessToken: string,
+  id: string,
+  patch: UpdateTradeRequestInput,
+  fetchFn: typeof fetch = (...args) => fetch(...args),
+  signal?: AbortSignal,
+): Promise<TradeView> {
+  const response = await fetchFn(`${apiUrl}/trades/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(patch),
+    signal,
+  });
+  if (response.status !== 200) {
+    throw new ApiError(
+      response.status,
+      undefined,
+      await readErrorBody(response),
+    );
+  }
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    throw new ApiError(INVALID_RESPONSE_STATUS, 'Response is not valid JSON');
+  }
+  const parsed = TradeViewSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new ApiError(
+      INVALID_RESPONSE_STATUS,
+      `Response is invalid: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
+}
+
+/**
+ * DELETE /trades/{id}. Resolves on a 204, and on a 404 (the trade is gone
+ * either way). Any other status throws an `ApiError` with that status.
+ */
+export async function deleteTrade(
+  apiUrl: string,
+  accessToken: string,
+  id: string,
+  fetchFn: typeof fetch = (...args) => fetch(...args),
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetchFn(`${apiUrl}/trades/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+  });
+  if (response.status !== 204 && response.status !== 404) {
+    throw new ApiError(response.status);
+  }
 }
 
 const SIGNED_DECIMAL = /^-?\d+(\.\d+)?$/;

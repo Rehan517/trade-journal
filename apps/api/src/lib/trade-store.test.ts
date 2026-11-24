@@ -1,4 +1,6 @@
+import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import {
+  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -12,6 +14,8 @@ import {
   DynamoTradeStore,
   decodeCursor,
   InvalidCursorError,
+  TradeConflictError,
+  TradeNotFoundError,
   encodeCursor,
   openedAtKey,
   paddedBound,
@@ -424,5 +428,121 @@ describe('decodeCursor key shapes', () => {
     ],
   ])('rejects %s', (_name, key) => {
     expect(decodeCursor(encodeCursor(key))).toBeUndefined();
+  });
+});
+
+describe('DynamoTradeStore.get consistency', () => {
+  it('sets ConsistentRead only when asked', async () => {
+    ddb.on(GetCommand).resolves({ Item: storedItem() });
+    await store().get('a', ID);
+    await store().get('a', ID, { consistent: true });
+    const calls = ddb.commandCalls(GetCommand);
+    expect(calls[0]?.args[0].input.ConsistentRead).toBeUndefined();
+    expect(calls[1]?.args[0].input.ConsistentRead).toBe(true);
+  });
+});
+
+describe('DynamoTradeStore.replace', () => {
+  const edited: TradeRecord = {
+    trade: {
+      ...trade,
+      openedAt: '2026-11-19T03:00:00Z',
+      closedAt: '2026-11-19T04:00:00Z',
+    } as Trade,
+    createdAt: record.createdAt,
+    updatedAt: '2026-11-20T00:00:00.000Z',
+  };
+  const ccf = () =>
+    new ConditionalCheckFailedException({ message: 'x', $metadata: {} });
+
+  it('sends a conditional PutItem with a recomputed openedAtKey', async () => {
+    ddb.on(PutCommand).resolves({});
+    await store().replace('a', edited, record.updatedAt);
+    const input = ddb.commandCalls(PutCommand)[0]?.args[0].input;
+    expect(input?.ConditionExpression).toBe(
+      'attribute_exists(sk) AND updatedAt = :readUpdatedAt',
+    );
+    expect(input?.ExpressionAttributeValues).toEqual({
+      ':readUpdatedAt': record.updatedAt,
+    });
+    expect(input?.Item).toMatchObject({
+      pk: 'USER#a',
+      sk: `TRADE#${ID}`,
+      openedAtKey: `2026-11-19T03:00:00.000000000Z#${ID}`,
+      createdAt: record.createdAt,
+      updatedAt: edited.updatedAt,
+    });
+    expect(input?.Item).not.toHaveProperty('metrics');
+  });
+
+  it('sends no cleared attributes', async () => {
+    ddb.on(PutCommand).resolves({});
+    const rest: Record<string, unknown> = { ...edited.trade };
+    delete rest.exitPrice;
+    delete rest.closedAt;
+    delete rest.plannedStop;
+    await store().replace(
+      'a',
+      { ...edited, trade: rest as Trade },
+      record.updatedAt,
+    );
+    const item = ddb.commandCalls(PutCommand)[0]?.args[0].input.Item;
+    expect(item).not.toHaveProperty('exitPrice');
+    expect(item).not.toHaveProperty('closedAt');
+    expect(item).not.toHaveProperty('plannedStop');
+  });
+
+  it('throws TradeNotFoundError when the re-read finds nothing', async () => {
+    ddb.on(PutCommand).rejects(ccf());
+    ddb.on(GetCommand).resolves({});
+    await expect(
+      store().replace('a', edited, record.updatedAt),
+    ).rejects.toBeInstanceOf(TradeNotFoundError);
+    expect(ddb.commandCalls(GetCommand)[0]?.args[0].input).toMatchObject({
+      Key: { pk: 'USER#a', sk: `TRADE#${ID}` },
+      ConsistentRead: true,
+    });
+  });
+
+  it('throws TradeConflictError when the trade is still there', async () => {
+    ddb.on(PutCommand).rejects(ccf());
+    ddb.on(GetCommand).resolves({ Item: storedItem() });
+    await expect(
+      store().replace('a', edited, record.updatedAt),
+    ).rejects.toBeInstanceOf(TradeConflictError);
+  });
+
+  it('rethrows other errors without re-reading', async () => {
+    ddb.on(PutCommand).rejects(new Error('boom'));
+    await expect(
+      store().replace('a', edited, record.updatedAt),
+    ).rejects.toThrow('boom');
+    expect(ddb.commandCalls(GetCommand)).toHaveLength(0);
+  });
+});
+
+describe('DynamoTradeStore.delete', () => {
+  it('sends DeleteItem with attribute_exists(sk) and the caller pk', async () => {
+    ddb.on(DeleteCommand).resolves({});
+    expect(await store().delete('a', ID)).toBe(true);
+    expect(ddb.commandCalls(DeleteCommand)[0]?.args[0].input).toMatchObject({
+      TableName: TABLE,
+      Key: { pk: 'USER#a', sk: `TRADE#${ID}` },
+      ConditionExpression: 'attribute_exists(sk)',
+    });
+  });
+
+  it('returns false when the condition fails', async () => {
+    ddb
+      .on(DeleteCommand)
+      .rejects(
+        new ConditionalCheckFailedException({ message: 'x', $metadata: {} }),
+      );
+    expect(await store().delete('a', ID)).toBe(false);
+  });
+
+  it('rethrows other errors', async () => {
+    ddb.on(DeleteCommand).rejects(new Error('boom'));
+    await expect(store().delete('a', ID)).rejects.toThrow('boom');
   });
 });
